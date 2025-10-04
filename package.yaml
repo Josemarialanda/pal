@@ -1,0 +1,29 @@
+# package.yaml — for PAL
+# Run `hpack` to generate .cabal
+
+name: pal
+version: 0.0.0
+synopsis: A meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
+description: |
+  PAL is a meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
+license: NONE
+author: José María Landa Chávez
+maintainer: José María Landa Chávez <josemaria.landa@gmail.com>
+copyright: 2025-10-04 José María Landa Chávez
+extra-doc-files:
+  - README.md
+tested-with:
+  - GHC == 8.6.3
+  - GHC == 8.8.3
+  - GHC == 8.10.5
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - Pal
+  other-modules: []
+  dependencies:
+    - base >= 4.9 && < 5
+  default-extensions: []
+  ghc-options: []
+  language: Haskell2010

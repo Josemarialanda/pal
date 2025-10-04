@@ -1,0 +1,1 @@
+PAL is a meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
