@@ -20,10 +20,44 @@ tested-with:
 library:
   source-dirs: src
   exposed-modules:
-    - Pal
-  other-modules: []
+    - PAL
+  other-modules:
+    [Types, Interpreters.Core, Interpreters.Debug, Interpreters.Common.Actions, Parser.Parser, Parser.Quasi, Parser.Types]
   dependencies:
     - base >= 4.9 && < 5
-  default-extensions: []
-  ghc-options: []
+    - free
+    - containers
+    - polysemy
+    - lens
+    - text
+    - template-haskell
+    - megaparsec
+  default-extensions: [
+      DataKinds,
+      TypeOperators,
+      ScopedTypeVariables,
+      TypeApplications,
+      RecordWildCards,
+      OverloadedStrings,
+      PolyKinds,
+      FlexibleContexts,
+      ConstraintKinds,
+      ViewPatterns,
+      LambdaCase,
+      GeneralizedNewtypeDeriving,
+      TupleSections,
+      InstanceSigs,
+      DeriveFunctor,
+      NamedFieldPuns,
+      TypeFamilies,
+      FlexibleInstances,
+      UndecidableInstances,
+      DeriveDataTypeable,
+      OverloadedRecordDot,
+      TemplateHaskell,
+      MultiWayIf
+      GADTs
+      RankNTypes,
+    ]
+  ghc-options: [-Wall, -Werror]
   language: Haskell2010

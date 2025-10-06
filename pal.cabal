@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.36.1.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -22,9 +22,49 @@ extra-doc-files:
 
 library
   exposed-modules:
-      Pal
+      PAL
+  other-modules:
+      Types
+      Interpreters.Core
+      Interpreters.Debug
+      Interpreters.Common.Actions
+      Parser.Parser
+      Parser.Quasi
+      Parser.Types
   hs-source-dirs:
       src
+  default-extensions:
+      DataKinds
+      TypeOperators
+      ScopedTypeVariables
+      TypeApplications
+      RecordWildCards
+      OverloadedStrings
+      PolyKinds
+      FlexibleContexts
+      ConstraintKinds
+      ViewPatterns
+      LambdaCase
+      GeneralizedNewtypeDeriving
+      TupleSections
+      InstanceSigs
+      DeriveFunctor
+      NamedFieldPuns
+      TypeFamilies
+      FlexibleInstances
+      UndecidableInstances
+      DeriveDataTypeable
+      OverloadedRecordDot
+      TemplateHaskell
+      MultiWayIf GADTs RankNTypes
+  ghc-options: -Wall -Werror
   build-depends:
       base >=4.9 && <5
+    , containers
+    , free
+    , lens
+    , megaparsec
+    , polysemy
+    , template-haskell
+    , text
   default-language: Haskell2010
