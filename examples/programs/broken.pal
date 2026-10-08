@@ -1,0 +1,12 @@
+-- This file has a typo on purpose: "rul" instead of "rule".
+-- The parser rejects the whole file instead of silently stopping early.
+
+type Bool
+expr True : Bool
+
+rul Not:
+  x : Bool
+->
+  Not(x) : Bool
+
+infer Not(True)

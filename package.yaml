@@ -1,0 +1,75 @@
+# package.yaml — for PAL
+# Run `hpack` to generate .cabal
+
+name: pal
+version: 0.0.0
+synopsis: A meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
+description: |
+  PAL is a meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
+license: NONE
+author: José María Landa Chávez
+maintainer: José María Landa Chávez <josemaria.landa@gmail.com>
+copyright: 2025-10-04 José María Landa Chávez
+extra-doc-files:
+  - README.md
+tested-with:
+  - GHC == 9.8.4
+
+dependencies:
+  - base >= 4.9 && < 5
+  - polysemy
+
+default-extensions: [
+    DataKinds,
+    TypeOperators,
+    ScopedTypeVariables,
+    TypeApplications,
+    RecordWildCards,
+    OverloadedStrings,
+    PolyKinds,
+    FlexibleContexts,
+    ConstraintKinds,
+    ViewPatterns,
+    LambdaCase,
+    GeneralizedNewtypeDeriving,
+    TupleSections,
+    InstanceSigs,
+    DeriveFunctor,
+    NamedFieldPuns,
+    TypeFamilies,
+    FlexibleInstances,
+    UndecidableInstances,
+    DeriveDataTypeable,
+    OverloadedRecordDot,
+    TemplateHaskell,
+    MultiWayIf,
+    GADTs,
+    RankNTypes,
+  ]
+ghc-options: [-Wall, -Werror]
+language: Haskell2010
+
+library:
+  source-dirs: src
+  exposed-modules:
+    [PAL, Types, Interpreters.Core, Interpreters.Debug, Parser.Parser, Parser.Quasi, Parser.Types]
+  other-modules:
+    [Interpreters.Common.Actions, Utils.OneOfN]
+  dependencies:
+    - free
+    - containers
+    - lens
+    - text
+    - template-haskell
+    - megaparsec
+
+executables:
+  pal-examples:
+    source-dirs: examples
+    main: Main.hs
+    other-modules:
+      [Examples.Types, Examples.AsCode, Examples.AsData, Examples.AsDSL, Examples.AsFile]
+    dependencies:
+      - pal
+      - megaparsec
+      - filepath

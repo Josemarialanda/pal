@@ -1,0 +1,54 @@
+-- A fragment of the Simply Typed Lambda Calculus.
+-- Lowercase type names (a, b) are type variables, solved by unification.
+
+type Num
+type Bool
+type Arrow
+
+expr LitInt : Num
+expr True   : Bool
+expr False  : Bool
+
+-- Built-in functions, given their function types directly.
+expr Not    : Arrow<Bool, Bool>
+expr IsZero : Arrow<Num, Bool>
+
+rule If:
+  cond : Bool
+  then : a
+  else : a
+->
+  If(cond, then, else) : a
+
+-- Application: a function a -> b applied to an a gives a b.
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+-- Lambda: the body is checked with the parameter x in scope.
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+-- Let: the bound value is checked first; then the body, with x in scope.
+rule Let:
+  value : a
+  x : a |- body : b
+->
+  Let(x, value, body) : b
+
+infer App(Not, True)                          -- Bool
+infer If(App(IsZero, LitInt), LitInt, LitInt) -- Num
+infer Lam(x, x)                               -- Arrow<a, a>
+infer Lam(x, App(Not, x))                     -- Arrow<Bool, Bool>
+infer Lam(f, Lam(x, App(f, App(f, x))))       -- Arrow<Arrow<a, a>, Arrow<a, a>>
+infer App(Lam(x, If(x, LitInt, LitInt)), True) -- Num
+infer Let(n, LitInt, App(IsZero, n))          -- Bool
+infer Lam(x, Lam(x, x))                       -- Arrow<a, Arrow<b, b>> (inner x shadows)
+infer App(Not, LitInt)                        -- ✗ Not expects Bool
+infer App(Lam(x, App(Not, x)), LitInt)        -- ✗ the lambda expects Bool
+infer Lam(x, App(x, x))                       -- ✗ infinite type
+infer Lam(x, y)                               -- ✗ y is not in scope

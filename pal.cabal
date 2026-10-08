@@ -1,0 +1,116 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           pal
+version:        0.0.0
+synopsis:       A meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
+description:    PAL is a meta-DSL for defining, exploring, and experimenting with type systems and languages within Haskell.
+author:         José María Landa Chávez
+maintainer:     José María Landa Chávez <josemaria.landa@gmail.com>
+copyright:      2025-10-04 José María Landa Chávez
+license:        NONE
+build-type:     Simple
+tested-with:
+    GHC == 9.8.4
+extra-doc-files:
+    README.md
+
+library
+  exposed-modules:
+      PAL
+      Types
+      Interpreters.Core
+      Interpreters.Debug
+      Parser.Parser
+      Parser.Quasi
+      Parser.Types
+  other-modules:
+      Interpreters.Common.Actions
+      Utils.OneOfN
+  hs-source-dirs:
+      src
+  default-extensions:
+      DataKinds
+      TypeOperators
+      ScopedTypeVariables
+      TypeApplications
+      RecordWildCards
+      OverloadedStrings
+      PolyKinds
+      FlexibleContexts
+      ConstraintKinds
+      ViewPatterns
+      LambdaCase
+      GeneralizedNewtypeDeriving
+      TupleSections
+      InstanceSigs
+      DeriveFunctor
+      NamedFieldPuns
+      TypeFamilies
+      FlexibleInstances
+      UndecidableInstances
+      DeriveDataTypeable
+      OverloadedRecordDot
+      TemplateHaskell
+      MultiWayIf
+      GADTs
+      RankNTypes
+  ghc-options: -Wall -Werror
+  build-depends:
+      base >=4.9 && <5
+    , containers
+    , free
+    , lens
+    , megaparsec
+    , polysemy
+    , template-haskell
+    , text
+  default-language: Haskell2010
+
+executable pal-examples
+  main-is: Main.hs
+  other-modules:
+      Examples.Types
+      Examples.AsCode
+      Examples.AsData
+      Examples.AsDSL
+      Examples.AsFile
+  hs-source-dirs:
+      examples
+  default-extensions:
+      DataKinds
+      TypeOperators
+      ScopedTypeVariables
+      TypeApplications
+      RecordWildCards
+      OverloadedStrings
+      PolyKinds
+      FlexibleContexts
+      ConstraintKinds
+      ViewPatterns
+      LambdaCase
+      GeneralizedNewtypeDeriving
+      TupleSections
+      InstanceSigs
+      DeriveFunctor
+      NamedFieldPuns
+      TypeFamilies
+      FlexibleInstances
+      UndecidableInstances
+      DeriveDataTypeable
+      OverloadedRecordDot
+      TemplateHaskell
+      MultiWayIf
+      GADTs
+      RankNTypes
+  ghc-options: -Wall -Werror
+  build-depends:
+      base >=4.9 && <5
+    , filepath
+    , megaparsec
+    , pal
+    , polysemy
+  default-language: Haskell2010
