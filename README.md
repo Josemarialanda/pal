@@ -67,11 +67,115 @@ type inference steps and results for each expression.
 
 Each PAL interpreter implements a different “view” of evaluation:
 
-| Interpreter      | Description                                     |
-| ---------------- | ----------------------------------------------- |
-| **Core**         | Pure and minimal, no I/O or tracing             |
-| **Debug**        | Uses `Polysemy.Trace` for human-readable logs   |
-| **IO (planned)** | Will allow runtime interaction via stdin/stdout |
+| Interpreter | Module                | Description                                                        |
+| ----------- | --------------------- | ------------------------------------------------------------------ |
+| **Core**    | `Interpreters.Core`   | Pure and minimal, no I/O or tracing                                |
+| **Debug**   | `Interpreters.Debug`  | Uses `Polysemy.Trace` for human-readable logs, with context dumps  |
+| **IO**      | `Interpreters.IO`     | Runs in `IO` and prints one line per result. Powers the `pal` command and its REPL |
+
+---
+
+## The `pal` Command (IO Interpreter)
+
+The `pal` executable runs PAL source directly. You don't need to write any
+Haskell.
+
+The quickest way in is the REPL script. It builds `pal` if needed, then
+starts the REPL:
+
+```sh
+./pal-repl.sh                               # empty REPL
+./pal-repl.sh examples/programs/stlc.pal    # load files first, then REPL
+```
+
+The script runs from your current directory, so relative file paths work
+from anywhere. To run files without a REPL, or to pass other options, call
+`pal` through cabal:
+
+```sh
+cabal run -v0 pal -- FILE.pal        # run a file
+cabal run -v0 pal                    # start the interactive REPL
+cabal run -v0 pal -- -i FILE.pal     # run a file, then open a REPL with its context
+```
+
+Use `cabal install exe:pal` to put `pal` on your `PATH`. The rest of this
+section uses the plain `pal` name.
+
+### Running files
+
+```sh
+$ pal examples/programs/stlc.pal
+✓ App(Not, True) :: Bool
+✓ Lam(x, x) :: Arrow<a, a>
+…
+✗ Lam(x, App(x, x)) -> [Error] Infinite type: a ~ Arrow<a, b>
+```
+
+* Each `infer` prints one line: `✓ expr :: type` or `✗ expr -> error`.
+* Several files run **in order in one shared context**, so you can split a
+  language over files: `pal prelude.pal program.pal`.
+* The exit code is **1** if a file fails to parse or any inference fails, and
+  0 otherwise. This makes `pal` usable as a checker in scripts and CI.
+
+### The REPL
+
+```text
+$ pal
+PAL REPL — type :help for commands, :quit to exit.
+pal> type Bool
+defined type Bool
+pal> expr True : Bool
+defined expr True : Bool
+pal> rule Not:
+...>   x : Bool
+...> ->
+...>   Not(x) : Bool
+defined rule Not
+pal> Not(Not(True))
+✓ Not(Not(True)) :: Bool
+pal> :quit
+```
+
+* The context persists for the whole session. Every statement builds on the
+  ones before it.
+* **Multi-line input:** if the input isn't finished yet (a rule without its
+  conclusion, an unclosed `(`), the prompt changes to `...>` and the input
+  continues on the next line. A blank line ends it early and shows the
+  syntax error.
+* **A bare expression** such as `Not(True)` is shorthand for `infer Not(True)`.
+* Commands:
+
+  | Command          | Effect                                     |
+  | ---------------- | ------------------------------------------ |
+  | `:load FILE...`  | Run `.pal` files in the current context    |
+  | `:ctx`           | Show the current context                   |
+  | `:reset`         | Clear the context                          |
+  | `:help`          | List the commands                          |
+  | `:quit` / Ctrl-D | Exit                                       |
+
+* If stdin is not a terminal, the banner and prompts are left out, so you can
+  pipe a session in: `pal < session.txt`.
+
+### Using the IO interpreter from Haskell
+
+```haskell
+import Interpreters.IO (defaultIOOptions, runInterpreterIO, runInterpreterIOWithCtx)
+
+main :: IO ()
+main = do
+  -- Prints "✓ …" / "✗ …" for every infer, then returns the last result.
+  _ <- runInterpreterIO defaultIOOptions mempty program
+
+  -- Also returns the final context, so it can be reused by a later program.
+  (ctx, _) <- runInterpreterIOWithCtx defaultIOOptions mempty program
+  _ <- runInterpreterIO defaultIOOptions ctx anotherProgram
+  pure ()
+```
+
+`IOOptions { ioEchoDefinitions = True }` also prints a line for every
+definition, which is what the REPL uses. `Program.loadPalFile` parses a `.pal`
+file into `[PalAction]`, and `Interpreters.IO.runActionsIO` runs such a list
+and returns every inference result.
 
 ---
 
@@ -170,6 +274,9 @@ mainAsData = either print print =<< Debug.runInterpreterStdout (mempty @Ctx) (pa
 ```
 
 #### Data Type
+
+Defined in [`src/Program.hs`](src/Program.hs) (and re-exported by `PAL`), along
+with `runPalActions` and `loadPalFile`, which parses a `.pal` file into this form.
 
 ```haskell
 data PalAction
@@ -309,6 +416,10 @@ Run them with the script:
 ./run-examples.sh --trace dsl/maybe  # full Debug trace with context dumps
 ./run-examples.sh --list             # list all examples
 ```
+
+You can also run the `.pal` files directly with the [`pal` command](#the-pal-command-io-interpreter)
+(`cabal run -v0 pal -- examples/programs/stlc.pal`), or load them into the
+REPL with `./pal-repl.sh examples/programs/stlc.pal`.
 
 For a guided, step-by-step explanation of each example, including derivation
 trees and unification traces, see [TUTORIAL.md](TUTORIAL.md).
@@ -497,4 +608,7 @@ Num
   and the resulting **context state** after each step.
 * The **Core interpreter** (pure version) performs the same inference logic,
   but returns only the final result (e.g., `Right (TCon "Num" [])`).
-* The `Env` section remains empty for now — it’s reserved for future goodies =)
+* The **IO interpreter** (`runInterpreterIO`, used by the `pal` command) prints just
+  one line per inference result, with no context dumps.
+* The `Env` section of a trace stays empty. Variables bound by rule hypotheses
+  (e.g. a lambda’s parameter) live there only while their premise is checked.

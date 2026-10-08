@@ -9,7 +9,7 @@ the first example that needs it:
 
 | Part | Example(s)                     | Theory introduced                                   |
 | ---- | ------------------------------ | --------------------------------------------------- |
-| 0    | —                              | Running the examples                                |
+| 0    | —                              | Running the examples (and the `pal` command)        |
 | 1    | —                              | Types, terms, judgments, inference rules            |
 | 2    | —                              | How PAL is put together                             |
 | 3    | `dsl/logic`                    | Derivation trees, rule matching, arity              |
@@ -19,7 +19,9 @@ the first example that needs it:
 | 7    | `data/pairs`, `data/generated` | Destructuring types; programs as data               |
 | 8    | `code/lambda`, `file/stlc`     | Typing contexts (Γ), hypothetical judgments, binders |
 | 9    | —                              | Limitations: let-polymorphism and others            |
-| 10   | —                              | Exercises and a cheat sheet                         |
+| 10   | —                              | Exercises                                           |
+| 11   | —                              | Working interactively: the IO interpreter and REPL  |
+| —    | —                              | Cheat sheet                                         |
 
 ---
 
@@ -40,6 +42,18 @@ A result line looks like this:
 ```
 
 All the outputs quoted below come from actually running the examples.
+
+You can also run any `.pal` file directly, or type PAL into an interactive
+REPL, with the `pal` command:
+
+```sh
+cabal run -v0 pal -- examples/programs/stlc.pal   # run a file
+./pal-repl.sh                                     # start the REPL
+./pal-repl.sh examples/programs/stlc.pal          # REPL with a file already loaded
+```
+
+The REPL is the quickest way to try the exercises in Part 10. Part 11 covers
+it in detail.
 
 ---
 
@@ -132,8 +146,10 @@ flowchart LR
     eff(["PAL effect<br/>Sem r (Either Err Type)"])
     eff --> core["Core interpreter<br/>pure, no output"]
     eff --> debug["Debug interpreter<br/>traces every step"]
+    eff --> io["IO interpreter<br/>one line per result<br/><i>pal command & REPL</i>"]
     core --> act[["Interpreters.Common.Actions<br/>infer · unify · applyRule"]]
     debug --> act
+    io --> act
 ```
 
 The `PAL` effect ([src/Types.hs](src/Types.hs)) has exactly four operations:
@@ -862,7 +878,9 @@ problem, because they are instantiated fresh at every use (§6.2).
 
 ## 10. Exercises
 
-Try these in a copy of a `.pal` file or a quasiquote. Answers are at the end.
+Try these in the REPL (Part 11), in a copy of a `.pal` file, or in a
+quasiquote. `./pal-repl.sh examples/programs/stlc.pal` opens a REPL with the STLC
+rules already loaded. Answers are at the end.
 
 1. Add a rule `Eq: x : a, y : a -> Eq(x, y) : Bool`. What do
    `Eq(LitInt, LitInt)` and `Eq(LitInt, True)` return?
@@ -904,6 +922,244 @@ Try these in a copy of a `.pal` file or a quasiquote. Answers are at the end.
 
 ---
 
+## 11. Working interactively: the IO interpreter and REPL
+
+So far, each experiment meant editing a file and re-running it. The **IO
+interpreter** ([src/Interpreters/IO.hs](src/Interpreters/IO.hs)) and the `pal`
+command built on it shorten that loop. You type a rule, try it straight away,
+fix it, and try again.
+
+### 11.1 Three interpreters, one engine
+
+All three interpreters handle the same `PAL` effect with the same inference
+code (§2). They differ only in what they show and where they run:
+
+| Interpreter | Runs in | Prints                              | Returns                        | Used by            |
+| ----------- | ------- | ----------------------------------- | ------------------------------ | ------------------ |
+| Core        | pure    | nothing                             | last result                    | tests, libraries   |
+| Debug       | `IO`    | every step and the full context     | last result                    | `--trace`          |
+| IO          | `IO`    | one line per `infer` (and optionally per definition) | last result **and the final context** | `pal`, the REPL    |
+
+Returning the final context is the key difference. It lets the context from
+one program become the starting point of the next one, which is how a REPL
+session builds up a language one input at a time:
+
+```mermaid
+flowchart LR
+    c0["Ctx (empty)"] -- "input 1<br/>type Bool" --> c1["Ctx: Bool"]
+    c1 -- "input 2<br/>expr True : Bool" --> c2["Ctx: Bool, True"]
+    c2 -- "input 3<br/>rule Not: …" --> c3["Ctx: Bool, True, Not"]
+    c3 -- "input 4<br/>Not(True)" --> r(["✓ Not(True) :: Bool"])
+```
+
+Each arrow is one call to `runInterpreterIOWithCtx`. It is given the
+context so far and returns the updated one.
+
+### 11.2 Building `dsl/logic` live
+
+Start the REPL with `./pal-repl.sh`, then rebuild Part 3's language one
+piece at a time:
+
+```text
+pal> type Bool
+defined type Bool
+pal> expr True : Bool
+defined expr True : Bool
+pal> expr False : Bool
+defined expr False : Bool
+pal> rule Not:
+...>   x : Bool
+...> ->
+...>   Not(x) : Bool
+defined rule Not
+pal> Not(Not(True))
+✓ Not(Not(True)) :: Bool
+```
+
+Three things to notice:
+
+- **Multi-line input.** After `rule Not:` the input isn't finished, so the
+  prompt changes to `...>` and the input continues on the next line. The rule
+  runs as soon as its conclusion is complete.
+- **Bare expressions.** `Not(Not(True))` is shorthand for
+  `infer Not(Not(True))`.
+- **Definitions are echoed** (`defined rule Not`), so every input gets a
+  reply.
+
+Now try `And` before it exists, then define it:
+
+```text
+pal> And(True, False)
+✗ And(True, False) -> [Error] Unknown expression → And
+pal> rule And:
+...>   x : Bool
+...>   y : Bool
+...> ->
+...>   And(x, y) : Bool
+defined rule And
+pal> And(True, Not(False))
+✓ And(True, Not(False)) :: Bool
+```
+
+The failed `infer` didn't change anything. Only definitions extend the
+context (§2), so you can always define the missing piece and retry.
+
+A syntax error is reported as soon as more input can't fix it. Here the
+conclusion is missing its `:`:
+
+```text
+pal> rule Or:
+...>   x : Bool
+...>   y : Bool
+...> ->
+...>   Or(x, y) Bool
+<input>:5:12:
+  |
+5 |   Or(x, y) Bool
+  |            ^
+unexpected 'B'
+expecting ':'
+```
+
+The faulty input is discarded and the context is unchanged. `Not` and `And`
+are still there, which `:ctx` confirms:
+
+```text
+pal> :ctx
+=== Context ===
+Types:
+  - type Bool
+
+Expressions:
+  - False : Bool
+  - True : Bool
+
+Rules:
+  - And:
+    …
+  - Not:
+    …
+```
+
+### 11.3 How the REPL decides an input is finished
+
+After each line, the REPL parses everything typed since the last result and
+classifies it ([src/Repl.hs](src/Repl.hs), `parseInput`):
+
+```mermaid
+flowchart TD
+    line(["new line"]) --> cmd{"starts with ':'<br/>(and no unfinished input)?"}
+    cmd -- yes --> run_cmd["run the command"]
+    cmd -- no --> parse{"parse buffered input<br/>as PAL statements"}
+    parse -- ok --> go["run them<br/>(context is updated)"]
+    parse -- "error" --> expr{"parse it as one<br/>bare expression?"}
+    expr -- ok --> inf["run it as an infer"]
+    expr -- "error" --> where{"did the parser run<br/>off the end of the input?"}
+    where -- "yes: e.g. rule without conclusion,<br/>unclosed '('" --> more["Incomplete:<br/>prompt ...> and wait"]
+    where -- "no: e.g. 'Or(x, y) Bool'" --> err["Invalid:<br/>show error, discard input"]
+```
+
+An error **at the end of the input** means more text could still fix it.
+An error **earlier** can't be fixed by typing more. To give up on an
+unfinished input, enter a blank line: the REPL reports the error and
+discards the input. Input starting with a keyword (`type`, `expr`, `rule`,
+`infer`) is never read as a bare expression, so `type` on its own waits for
+a name instead of trying to infer a variable called `type`.
+
+### 11.4 Experimenting on top of a file
+
+`./pal-repl.sh FILE` (the same as `pal -i FILE`) runs a file and then opens
+a REPL **with that file's context**. That makes it easy to poke at an
+existing language. For example, here is the let-polymorphism limitation from §9.1, reproduced live on top of
+the STLC rules:
+
+```text
+$ ./pal-repl.sh examples/programs/stlc.pal
+✓ App(Not, True) :: Bool
+…                                      (the file's own results)
+pal> Lam(f, App(f, True))
+✓ Lam(f, App(f, True)) :: Arrow<Arrow<Bool, a>, a>
+pal> rule Pair:
+...>   x : a
+...>   y : b
+...> ->
+...>   Pair(x, y) : Pair<a, b>
+defined rule Pair
+pal> Let(id, Lam(x, x), App(id, True))
+✓ Let(id, Lam(x, x), App(id, True)) :: Bool
+pal> Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))
+✗ Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt))) -> [Error] Type mismatch: expected Bool, got Num
+```
+
+Inside a session, `:load FILE` does the same thing: it runs the file in the
+**current** context, so later files can build on earlier ones. `:reset`
+starts again from an empty context.
+
+| Command          | Effect                                  |
+| ---------------- | --------------------------------------- |
+| `:load FILE...`  | Run `.pal` files in the current context |
+| `:ctx`           | Show the current context                |
+| `:reset`         | Clear the context                       |
+| `:help`          | List the commands                       |
+| `:quit` / Ctrl-D | Exit                                    |
+
+### 11.5 Running files and checking programs
+
+Without `-i`, `pal` just runs its files and prints one line per `infer`:
+
+```text
+$ cabal run -v0 pal -- examples/programs/stlc.pal
+✓ App(Not, True) :: Bool
+✓ If(App(IsZero, LitInt), LitInt, LitInt) :: Num
+✓ Lam(x, x) :: Arrow<a, a>
+…
+✗ Lam(x, y) -> [Error] Unknown expression → y
+```
+
+Several files run **in order in one context**, like one long file. This lets
+you keep a language's rules separate from the programs that use them:
+
+```sh
+pal stlc-rules.pal my-program.pal
+```
+
+The **exit code is 1** if a file fails to parse or any `infer` fails, and 0
+if everything typechecks. So `pal` works as a typechecker in scripts and CI.
+(`stlc.pal` exits with 1 on purpose: it ends with examples that are meant to
+fail.)
+
+Input piped in from a file or another program is treated like typed input,
+minus the banner and prompts:
+
+```sh
+pal < session.txt
+```
+
+### 11.6 Using the IO interpreter from Haskell
+
+The `pal` command is a thin layer over a few library functions. Use them
+directly to run PAL from your own program:
+
+```haskell
+import Interpreters.IO (IOOptions (..), defaultIOOptions, runActionsIO, runInterpreterIO)
+import Program (loadPalFile)
+
+main :: IO ()
+main = do
+  -- A program written in any of the four styles (§2):
+  _ <- runInterpreterIO defaultIOOptions mempty program
+
+  -- A .pal file, keeping its context and every result:
+  Right actions <- loadPalFile "examples/programs/stlc.pal"
+  (ctx, results) <- runActionsIO defaultIOOptions mempty actions
+
+  -- Continue in the same context, echoing definitions like the REPL does:
+  _ <- runInterpreterIO defaultIOOptions {ioEchoDefinitions = True} ctx moreProgram
+  pure ()
+```
+
+---
+
 ## Cheat sheet
 
 ```
@@ -922,6 +1178,13 @@ lowercase name  = variable / type variable         x, a
 -- comment
 ```
 
+```
+pal FILE...            run files in order in one context (exit 1 if any infer fails)
+pal                    REPL: statements, bare expressions, :load :ctx :reset :help :quit
+pal -i FILE...         run files, then a REPL with their context
+./pal-repl.sh [FILE...] build pal and start the REPL (loading FILEs first, like -i)
+```
+
 | Error              | Meaning                                                          |
 | ------------------ | ---------------------------------------------------------------- |
 | `Type mismatch`    | Unification hit two different type constructors                  |
@@ -938,3 +1201,7 @@ lowercase name  = variable / type variable         x, a
 | Hypotheses / binders | `applyRule` in the same file                                          |
 | Syntax             | [src/Parser/Parser.hs](src/Parser/Parser.hs)                            |
 | Trace output       | [src/Interpreters/Debug.hs](src/Interpreters/Debug.hs)                  |
+| IO interpreter     | [src/Interpreters/IO.hs](src/Interpreters/IO.hs)                        |
+| REPL               | [src/Repl.hs](src/Repl.hs)                                              |
+| `pal` command      | [app/Main.hs](app/Main.hs)                                              |
+| Programs as data, `.pal` loading | [src/Program.hs](src/Program.hs)                          |

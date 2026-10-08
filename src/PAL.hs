@@ -58,7 +58,7 @@
 --
 -- * **Core interpreter** – pure and minimal, no I/O or tracing.
 -- * **Debug interpreter** – uses 'Polysemy.Trace' for human-readable logs.
--- * **IO interpreter (planned)** – allows runtime interaction and stdin/stdout input.
+-- * **IO interpreter** – prints results to stdout; powers the @pal@ command and its REPL.
 --
 -- ---
 -- ### Implementation Notes
@@ -74,12 +74,12 @@
 -- @
 --
 -- Each backend provides its own handler ('interpreter') for executing these effects.
-module PAL where
+module PAL (module PAL, module Program) where
 
-import Control.Monad (foldM)
 import Interpreters.Debug as Debug (runInterpreterStdout)
 import Parser.Quasi (palQuasiQuoter)
 import Polysemy (Members, Sem)
+import Program (PalAction (..), runPalActions)
 import Types
   ( Ctx,
     Err,
@@ -171,31 +171,6 @@ mainAsData = either print print =<< Debug.runInterpreterStdout (mempty @Ctx) (ru
         AInfer (ECon "Add" [ECon "LitInt" []]),
         AInfer (ECon "Add" [ECon "LitInt" [], ECon "LitInt" []])
       ]
-
--- | A data-level representation of PAL’s core DSL actions.
---
--- Each constructor mirrors one PAL effect operation and can be interpreted
--- via different backends (debug, pure, traced, etc.).
-data PalAction
-  = -- | Add a new base type.
-    ADefineType TypeDecl
-  | -- | Declare a new expression and its type.
-    ADefineExpr ExprDecl
-  | -- | Introduce a new typing rule.
-    ADefineRule TypingRule
-  | -- | Run inference on a given expression.
-    AInfer Expr
-  deriving (Show)
-
--- | Execute a list of 'PalAction's in order.
---
--- The result is that of the last 'AInfer' (or @Unit@ if there is none).
-runPalActions :: (Members '[PAL] r) => [PalAction] -> Sem r (Either Err Type)
-runPalActions = flip foldM (Right (TCon "Unit" [])) $ \acc -> \case
-  ADefineType td -> defineType td >> pure acc
-  ADefineExpr ed -> defineExpr ed >> pure acc
-  ADefineRule tr -> defineRule tr >> pure acc
-  AInfer e -> infer e
 
 ------------------------------------------------------------
 -- 3. Running PAL as *DSL* (via Quasiquotes)

@@ -22,8 +22,11 @@ library
   exposed-modules:
       PAL
       Types
+      Program
+      Repl
       Interpreters.Core
       Interpreters.Debug
+      Interpreters.IO
       Parser.Parser
       Parser.Quasi
       Parser.Types
@@ -70,6 +73,47 @@ library
     , text
   default-language: Haskell2010
 
+executable pal
+  main-is: Main.hs
+  other-modules:
+      Paths_pal
+  autogen-modules:
+      Paths_pal
+  hs-source-dirs:
+      app
+  default-extensions:
+      DataKinds
+      TypeOperators
+      ScopedTypeVariables
+      TypeApplications
+      RecordWildCards
+      OverloadedStrings
+      PolyKinds
+      FlexibleContexts
+      ConstraintKinds
+      ViewPatterns
+      LambdaCase
+      GeneralizedNewtypeDeriving
+      TupleSections
+      InstanceSigs
+      DeriveFunctor
+      NamedFieldPuns
+      TypeFamilies
+      FlexibleInstances
+      UndecidableInstances
+      DeriveDataTypeable
+      OverloadedRecordDot
+      TemplateHaskell
+      MultiWayIf
+      GADTs
+      RankNTypes
+  ghc-options: -Wall -Werror
+  build-depends:
+      base >=4.9 && <5
+    , pal
+    , polysemy
+  default-language: Haskell2010
+
 executable pal-examples
   main-is: Main.hs
   other-modules:
@@ -110,7 +154,6 @@ executable pal-examples
   build-depends:
       base >=4.9 && <5
     , filepath
-    , megaparsec
     , pal
     , polysemy
   default-language: Haskell2010

@@ -52,7 +52,7 @@ language: Haskell2010
 library:
   source-dirs: src
   exposed-modules:
-    [PAL, Types, Interpreters.Core, Interpreters.Debug, Parser.Parser, Parser.Quasi, Parser.Types]
+    [PAL, Types, Program, Repl, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
   other-modules:
     [Interpreters.Common.Actions, Utils.OneOfN]
   dependencies:
@@ -64,6 +64,12 @@ library:
     - megaparsec
 
 executables:
+  pal:
+    source-dirs: app
+    main: Main.hs
+    dependencies:
+      - pal
+
   pal-examples:
     source-dirs: examples
     main: Main.hs
@@ -71,5 +77,4 @@ executables:
       [Examples.Types, Examples.AsCode, Examples.AsData, Examples.AsDSL, Examples.AsFile]
     dependencies:
       - pal
-      - megaparsec
       - filepath
