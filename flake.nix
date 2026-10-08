@@ -19,8 +19,40 @@
         let
           pkgs = import inputs.nixpkgs { inherit system; overlays = [ overlay ]; };
           hspkgs = pkgs.haskellPackages;
+
+          # Format Haskell sources with ormolu.
+          #   format            # format every tracked .hs file
+          #   format --check    # fail (without writing) if anything is unformatted
+          #   format PATH...    # format only the given files/directories
+          # Also available as `nix fmt` and `nix run .#format`.
+          format = pkgs.writeShellApplication {
+            name = "format";
+            runtimeInputs = [ hspkgs.ormolu pkgs.git ];
+            text = ''
+              mode=inplace
+              if [ "''${1:-}" = "--check" ]; then
+                mode=check
+                shift
+              fi
+              [ "$#" -gt 0 ] || set -- "$(git rev-parse --show-toplevel)"
+              files=()
+              for path in "$@"; do
+                if [ -d "$path" ]; then
+                  # Directories (e.g. the `.` that `nix fmt` passes) expand to their tracked .hs files.
+                  mapfile -t -O "''${#files[@]}" files < <(git ls-files --full-name -- "$path/*.hs" | sed "s|^|$(git rev-parse --show-toplevel)/|")
+                else
+                  files+=("$path")
+                fi
+              done
+              [ "''${#files[@]}" -gt 0 ] || exit 0
+              ormolu --mode "$mode" "''${files[@]}"
+            '';
+          };
         in
         {
+          formatter = format;
+          apps.format = { type = "app"; program = "${format}/bin/format"; };
+
           devShell = hspkgs.shellFor {
             withHoogle = true;
             packages = p: [ p.pal ];
@@ -29,6 +61,7 @@
               hspkgs.haskell-language-server
               hspkgs.hlint
               hspkgs.ormolu
+              format
               pkgs.bashInteractive
               pkgs.hpack
             ];

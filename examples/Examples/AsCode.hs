@@ -17,11 +17,11 @@ import Types
     Type (..),
     TypeDecl (..),
     TypingRule (..),
-    premise,
     defineExpr,
     defineRule,
     defineType,
     infer,
+    premise,
   )
 
 examples :: [Example]

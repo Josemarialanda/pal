@@ -18,6 +18,7 @@ module Interpreters.Common.Actions where
 
 import Control.Monad (foldM, forM_)
 import Data.Foldable (find)
+import Data.List (nub)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Maybe (listToMaybe)
@@ -26,7 +27,6 @@ import Polysemy.Error (Error, fromEither, runError, throw)
 import Polysemy.State (State, evalState, gets, modify)
 import qualified Types
 import Utils.OneOfN (OneOf3 (..))
-import Data.List (nub)
 
 --------------------------------------------------------------------------------
 
@@ -51,19 +51,19 @@ insertIntoCtx = \case
 -- | Define a new type declaration in the current context.
 --
 --   Adds a new 'TypeDecl' to 'ctx'types'.
-defineType :: Member (State Types.Ctx) r => Types.TypeDecl -> Sem r ()
+defineType :: (Member (State Types.Ctx) r) => Types.TypeDecl -> Sem r ()
 defineType = insertIntoCtx . OneOf3_1
 
 -- | Define a new expression and its associated type.
 --
 --   Adds a new 'ExprDecl' to 'ctx'exprs'.
-defineExpr :: Member (State Types.Ctx) r => Types.ExprDecl -> Sem r ()
+defineExpr :: (Member (State Types.Ctx) r) => Types.ExprDecl -> Sem r ()
 defineExpr = insertIntoCtx . OneOf3_2
 
 -- | Define a new typing rule for inference.
 --
 --   Adds a 'TypingRule' to 'ctx'rules'.
-defineRule :: Member (State Types.Ctx) r => Types.TypingRule -> Sem r ()
+defineRule :: (Member (State Types.Ctx) r) => Types.TypingRule -> Sem r ()
 defineRule = insertIntoCtx . OneOf3_3
 
 --------------------------------------------------------------------------------
@@ -102,7 +102,6 @@ inferM ctx e =
     -- Rule found → apply it.
     Right rule ->
       applyRule ctx e rule
-
     -- No rule matched → try local bindings and declared types.
     Left (Types.NoRuleMatched _) ->
       case e of
@@ -115,17 +114,14 @@ inferM ctx e =
             Just _ -> throw (Types.NoRuleMatched e)
             -- Unknown constructor symbol altogether.
             Nothing -> throw (Types.UnknownExpr name)
-
         -- Variable: a local binding (e.g. a lambda parameter) shadows declarations.
         Types.EVar v ->
           case M.lookup v (Types.ctx'env ctx) of
             Just t -> pure t
             Nothing -> maybe (throw (Types.UnknownExpr v)) instantiate (lookupExprType ctx v)
-
     -- If rule matching failed for another reason, propagate it.
     Left err ->
       throw err
-
 
 --------------------------------------------------------------------------------
 
@@ -144,19 +140,16 @@ matchRule ctx e@(Types.ECon name args) =
     [] ->
       -- No rules for this constructor; not an unknown symbol (it may be a declared constant).
       Left (Types.NoRuleMatched e)
-
     rs ->
       case find ((== length args) . arity) rs of
-        Just r  -> Right r
+        Just r -> Right r
         Nothing ->
           case listToMaybe (nub (fmap arity rs)) of
             Just expected -> Left (Types.ArityMismatch expected (length args))
-            Nothing       -> Left (Types.NoRuleMatched e)
-
+            Nothing -> Left (Types.NoRuleMatched e)
 matchRule _ e =
   -- Non-constructor expressions aren’t matched by rule conclusions here.
   Left (Types.NoRuleMatched e)
-
 
 -- | Get all typing rules in the context that have the same constructor name.
 rulesWithSameName :: Types.Ctx -> String -> [Types.TypingRule]

@@ -107,19 +107,16 @@ interpreter = interpret $ \case
     Actions.defineType td
     ctx <- get @Ctx
     trace $ show ctx
-
   DefineExpr ed -> do
     trace $ "[PAL] Defining expression: " <> show ed
     Actions.defineExpr ed
     ctx <- get @Ctx
     trace $ show ctx
-
   DefineRule tr -> do
     trace $ "[PAL] Defining rule: " <> show tr
     Actions.defineRule tr
     ctx <- get @Ctx
     trace $ show ctx
-
   Infer e -> do
     trace $ "[PAL] Inferring type for expression: " <> show e
     ctx <- get

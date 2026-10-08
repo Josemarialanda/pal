@@ -89,11 +89,11 @@ import Types
     Type (TCon),
     TypeDecl (TypeDecl),
     TypingRule (..),
-    premise,
     defineExpr,
     defineRule,
     defineType,
     infer,
+    premise,
   )
 
 ------------------------------------------------------------
@@ -241,7 +241,8 @@ mainStlc = either print print =<< Debug.runInterpreterStdout mempty stlc
 -- type variables, solved by unification. The 'Lam' rule's premise
 -- @x : a |- body : b@ checks the body with the parameter @x@ in scope.
 stlc :: (Members '[PAL] r) => Sem r (Either Err Type)
-stlc = [palQuasiQuoter|
+stlc =
+  [palQuasiQuoter|
 -- Simply Typed Lambda Calculus (minimal)
 
 -- Base type
