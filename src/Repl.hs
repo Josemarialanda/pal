@@ -30,56 +30,87 @@ module Repl
 where
 
 import Control.Exception (IOException, try)
-import Control.Monad (unless, when)
+import Control.Monad (unless, void, when)
+import Control.Monad.IO.Class (liftIO)
 import Data.Char (isAlphaNum, isSpace)
 import Data.List (dropWhileEnd)
 import qualified Data.List.NonEmpty as NE
 import Interpreters.IO (IOOptions (..), defaultIOOptions, runActionsIO)
 import Parser.Parser (pExprApp, palProgram, sc)
 import Program (PalAction (..), fromStmt, loadPalFile)
-import System.IO (hFlush, hIsTerminalDevice, isEOF, stdin, stdout)
+import System.Console.Haskeline
+  ( InputT,
+    Settings (..),
+    defaultSettings,
+    getInputLine,
+    handleInterrupt,
+    outputStrLn,
+    runInputT,
+    withInterrupt,
+  )
+import System.Environment (lookupEnv)
+import System.IO (hIsTerminalDevice, stdin)
 import Text.Megaparsec (ParseErrorBundle (..), eof, errorBundlePretty, errorOffset, parse)
 import Types (Ctx)
 
 -- | Start a REPL with the given initial context.
 --
---   Prompts and the banner are only shown when stdin is a terminal, so a
---   script can also be piped in: @pal < script.pal@.
+--   Line editing uses Haskeline: ←/→ move the cursor, ↑/↓ browse history,
+--   Ctrl-R searches it, Tab completes file names (for @:load@), and Ctrl-C
+--   discards the current input. In a terminal, history is saved to
+--   @~/.pal_history@.
+--
+--   Prompts, the banner and the history file are only used when stdin is a
+--   terminal, so a script can also be piped in: @pal < script.pal@.
 runRepl :: Ctx -> IO ()
 runRepl ctx0 = do
   interactive <- hIsTerminalDevice stdin
-  when interactive $
-    putStrLn "PAL REPL — type :help for commands, :quit to exit."
-  loop interactive ctx0 ""
+  settings <- replSettings interactive
+  runInputT settings $ withInterrupt $ do
+    when interactive $
+      outputStrLn "PAL REPL — type :help for commands, :quit to exit."
+    loop interactive (ctx0, "")
 
--- | The main loop. @buffer@ holds the lines of an unfinished input.
-loop :: Bool -> Ctx -> String -> IO ()
-loop interactive ctx buffer = do
-  when interactive $ do
-    putStr (if null buffer then "pal> " else "...> ")
-    hFlush stdout
-  done <- isEOF
-  if done
-    then do
-      -- Run whatever is left, reporting it if it is incomplete.
-      unless (all isSpace buffer) $ () <$ evalInput True ctx buffer
-      when interactive (putStrLn "")
-    else do
-      line <- getLine
-      let trimmed = trim line
-      case trimmed of
-        ':' : cmd | null buffer -> do
-          next <- command ctx (words cmd)
-          maybe (pure ()) (\ctx' -> loop interactive ctx' "") next
-        "" | not (null buffer) -> do
-          -- A blank line ends an unfinished input.
-          ctx' <- evalInput True ctx buffer
-          loop interactive ctx' ""
-        _ -> do
-          let buffer' = buffer <> line <> "\n"
-          case parseInput buffer' of
-            Incomplete _ -> loop interactive ctx buffer'
-            _ -> evalInput False ctx buffer' >>= \ctx' -> loop interactive ctx' ""
+-- | Haskeline settings: default key bindings and file name completion, plus
+--   a history file in interactive sessions.
+replSettings :: Bool -> IO (Settings IO)
+replSettings interactive = do
+  home <- lookupEnv "HOME"
+  let history = if interactive then (<> "/.pal_history") <$> home else Nothing
+  pure defaultSettings {historyFile = history}
+
+-- | The main loop. The state is the context and the lines of an unfinished
+--   input. Ctrl-C (at the prompt or while a step runs) discards the
+--   unfinished input and keeps the context.
+loop :: Bool -> (Ctx, String) -> InputT IO ()
+loop interactive st@(ctx, _) = do
+  next <- handleInterrupt (Just (ctx, "") <$ outputStrLn "Interrupted.") (step interactive st)
+  maybe (pure ()) (loop interactive) next
+
+-- | Read and handle one line. Returns the next state, or 'Nothing' to quit.
+step :: Bool -> (Ctx, String) -> InputT IO (Maybe (Ctx, String))
+step interactive (ctx, buffer) =
+  getInputLine prompt >>= \case
+    Nothing -> do
+      -- End of input: run whatever is left, reporting it if it is incomplete.
+      unless (all isSpace buffer) $ void (liftIO (evalInput True ctx buffer))
+      pure Nothing
+    Just line -> case trim line of
+      ':' : cmd | null buffer -> fmap (,"") <$> liftIO (command ctx (words cmd))
+      "" | not (null buffer) -> do
+        -- A blank line ends an unfinished input.
+        ctx' <- liftIO (evalInput True ctx buffer)
+        pure (Just (ctx', ""))
+      _ -> do
+        let buffer' = buffer <> line <> "\n"
+        case parseInput buffer' of
+          Incomplete _ -> pure (Just (ctx, buffer'))
+          _ -> Just . (,"") <$> liftIO (evalInput False ctx buffer')
+  where
+    prompt
+      | not interactive = ""
+      | null buffer = "pal> "
+      | otherwise = "...> "
 
 -- | Parse and run an input. With @force@, an incomplete input is an error.
 evalInput :: Bool -> Ctx -> String -> IO Ctx
@@ -170,7 +201,10 @@ helpText =
       "  :ctx            show the current context",
       "  :reset          clear the context",
       "  :help           show this help",
-      "  :quit           exit (or Ctrl-D)"
+      "  :quit           exit (or Ctrl-D)",
+      "",
+      "Keys: ←/→ move the cursor, ↑/↓ browse history, Ctrl-R search history,",
+      "      Tab complete file names, Ctrl-C discard the current input."
     ]
 
 trim :: String -> String

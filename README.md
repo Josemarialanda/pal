@@ -143,6 +143,19 @@ pal> :quit
   continues on the next line. A blank line ends it early and shows the
   syntax error.
 * **A bare expression** such as `Not(True)` is shorthand for `infer Not(True)`.
+* **Line editing** (via [Haskeline](https://hackage.haskell.org/package/haskeline),
+  the same library GHCi uses):
+
+  | Key                | Effect                                              |
+  | ------------------ | --------------------------------------------------- |
+  | ← / →              | Move the cursor within the line                     |
+  | ↑ / ↓              | Browse previous inputs                              |
+  | Ctrl-R             | Search history                                      |
+  | Tab                | Complete file names (handy for `:load`)             |
+  | Ctrl-A / Ctrl-E    | Jump to the start / end of the line                 |
+  | Ctrl-C             | Discard the current (possibly multi-line) input     |
+
+  History is saved to `~/.pal_history`, so it carries over between sessions.
 * Commands:
 
   | Command          | Effect                                     |
@@ -153,8 +166,8 @@ pal> :quit
   | `:help`          | List the commands                          |
   | `:quit` / Ctrl-D | Exit                                       |
 
-* If stdin is not a terminal, the banner and prompts are left out, so you can
-  pipe a session in: `pal < session.txt`.
+* If stdin is not a terminal, the banner, prompts and history file are left
+  out, so you can pipe a session in: `pal < session.txt`.
 
 ### Using the IO interpreter from Haskell
 

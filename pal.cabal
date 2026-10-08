@@ -66,6 +66,7 @@ library
       base >=4.9 && <5
     , containers
     , free
+    , haskeline
     , lens
     , megaparsec
     , polysemy

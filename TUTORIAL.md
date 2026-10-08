@@ -986,6 +986,11 @@ Three things to notice:
 - **Definitions are echoed** (`defined rule Not`), so every input gets a
   reply.
 
+The usual line-editing keys work, as in GHCi or a shell. **←/→** move the
+cursor to fix a typo, **↑/↓** bring back earlier inputs (one line at a time
+for multi-line rules), and **Ctrl-R** searches them. History is kept in
+`~/.pal_history`, so it carries over to the next session.
+
 Now try `And` before it exists, then define it:
 
 ```text
@@ -1062,7 +1067,8 @@ flowchart TD
 An error **at the end of the input** means more text could still fix it.
 An error **earlier** can't be fixed by typing more. To give up on an
 unfinished input, enter a blank line: the REPL reports the error and
-discards the input. Input starting with a keyword (`type`, `expr`, `rule`,
+discards the input. Or press **Ctrl-C**, which discards it silently and
+returns to `pal>` with the context unchanged. Input starting with a keyword (`type`, `expr`, `rule`,
 `infer`) is never read as a bare expression, so `type` on its own waits for
 a name instead of trying to infer a variable called `type`.
 
@@ -1181,6 +1187,7 @@ lowercase name  = variable / type variable         x, a
 ```
 pal FILE...            run files in order in one context (exit 1 if any infer fails)
 pal                    REPL: statements, bare expressions, :load :ctx :reset :help :quit
+                       (←/→ edit, ↑/↓ history, Ctrl-R search, Ctrl-C discard input)
 pal -i FILE...         run files, then a REPL with their context
 ./pal-repl.sh [FILE...] build pal and start the REPL (loading FILEs first, like -i)
 ```
