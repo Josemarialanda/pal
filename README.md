@@ -6,6 +6,10 @@ and running type systems declaratively.
 It lets you design and test new type systems like *STLC*, *MiniHaskell*, or *Hindley–Milner*
 as embedded DSLs — directly in Haskell.
 
+> 📘 **New to PAL or to type systems?** Start with the [**Tutorial**](TUTORIAL.md):
+> it walks through every example step by step, with diagrams, and explains the
+> theory along the way (inference rules, unification, typing contexts).
+
 ---
 
 ## Overview
@@ -305,6 +309,9 @@ Run them with the script:
 ./run-examples.sh --trace dsl/maybe  # full Debug trace with context dumps
 ./run-examples.sh --list             # list all examples
 ```
+
+For a guided, step-by-step explanation of each example, including derivation
+trees and unification traces, see [TUTORIAL.md](TUTORIAL.md).
 
 ---
 
