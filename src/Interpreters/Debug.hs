@@ -29,11 +29,12 @@
 -- performance-critical evaluation.
 module Interpreters.Debug where
 
+import qualified Data.List.NonEmpty as NE
 import qualified Interpreters.Common.Actions as Actions
 import Polysemy (Embed, Members, Sem, interpret, run, runM)
 import Polysemy.State (State, evalState, get)
 import Polysemy.Trace (Trace, runTraceList, trace, traceToStdout)
-import Types (Ctx, Err, PAL (..), Type)
+import Types (Ctx, Derivation (..), Diagnostic (..), Err, Failure (..), PAL (..), Severity (..), Type)
 
 --------------------------------------------------------------------------------
 
@@ -104,17 +105,17 @@ interpreter ::
 interpreter = interpret $ \case
   DefineType td -> do
     trace $ "[PAL] Defining type: " <> show td
-    Actions.defineType td
+    Actions.defineType td >>= traceDiagnostics
     ctx <- get @Ctx
     trace $ show ctx
   DefineExpr ed -> do
     trace $ "[PAL] Defining expression: " <> show ed
-    Actions.defineExpr ed
+    Actions.defineExpr ed >>= traceDiagnostics
     ctx <- get @Ctx
     trace $ show ctx
   DefineRule tr -> do
     trace $ "[PAL] Defining rule: " <> show tr
-    Actions.defineRule tr
+    Actions.defineRule tr >>= traceDiagnostics
     ctx <- get @Ctx
     trace $ show ctx
   Infer e -> do
@@ -127,3 +128,20 @@ interpreter = interpret $ \case
         Left err -> "[PAL] ✗ " <> show e <> " -> " <> show err
     trace $ show ctx
     pure r
+  Expect x -> do
+    trace $ "[PAL] Checking: " <> show x
+    ctx <- get
+    let (diagnostics, r, met) = Actions.checkExpectation ctx x
+    traceDiagnostics diagnostics
+    trace $
+      (if met then "[PAL] ✓ " else "[PAL] ✗ ") <> show x <> case r of
+        Right d -> " (inferred " <> show (deriv'type d) <> ")"
+        Left failures -> " (" <> show (failure'err (NE.head failures)) <> ")"
+    trace $ show ctx
+    pure met
+  where
+    traceDiagnostics :: (Members '[Trace] r') => [Diagnostic] -> Sem r' ()
+    traceDiagnostics = mapM_ $ \(Diagnostic severity msg) ->
+      trace $ case severity of
+        SevError -> "[PAL] ✗ rejected: " <> msg
+        SevWarning -> "[PAL] ⚠ " <> msg

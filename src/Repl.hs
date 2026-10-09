@@ -36,10 +36,11 @@ import Control.Exception (IOException, try)
 import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Char (isAlphaNum, isSpace)
-import Data.List (dropWhileEnd)
+import Data.List (dropWhileEnd, intercalate)
 import qualified Data.List.NonEmpty as NE
-import Interpreters.IO (IOOptions (..), defaultIOOptions, runActionsIO)
-import Parser.Parser (pExprApp, palProgram, sc)
+import Data.Maybe (fromMaybe)
+import Parser.Parser (Parser, pExprAppLocated, palProgramLocated, sc)
+import Parser.Types (Located (..))
 import Pretty
   ( Attr (..),
     Style (..),
@@ -52,7 +53,8 @@ import Pretty
     prettyParseError,
     success,
   )
-import Program (PalAction (..), fromStmt, loadPalFile)
+import Program (Outcome (..), PalAction (..), Step (..), fromStmt, loadPalFileLocated, runSteps)
+import Report (Report (..), Source (..), defaultReport, derivationLatexDocument, prettyDerivation, reportStep)
 import System.Console.Haskeline
   ( InputT,
     Settings (..),
@@ -66,7 +68,8 @@ import System.Console.Haskeline
   )
 import System.Environment (lookupEnv)
 import System.IO (hIsTerminalDevice, stdin)
-import Text.Megaparsec (ParseErrorBundle (..), eof, errorBundlePretty, errorOffset, parse)
+import Text.Megaparsec (ParseErrorBundle (..), eof, errorBundlePretty, errorOffset, getOffset, parse)
+import Text.Read (readMaybe)
 import Types (Ctx)
 
 -- | How the REPL talks to the user.
@@ -74,7 +77,9 @@ data ReplEnv = ReplEnv
   { -- | stdin is a terminal: show the banner and prompts, keep history.
     reInteractive :: Bool,
     -- | Colors and text attributes for output.
-    reStyle :: Style
+    reStyle :: Style,
+    -- | Terminal width, for derivation trees.
+    reWidth :: Int
   }
 
 -- | Start a REPL with the given output style and initial context.
@@ -90,7 +95,8 @@ runRepl :: Style -> Ctx -> IO ()
 runRepl st ctx0 = do
   interactive <- hIsTerminalDevice stdin
   settings <- replSettings interactive
-  let env = ReplEnv interactive st
+  columns <- (>>= readMaybe) <$> lookupEnv "COLUMNS"
+  let env = ReplEnv interactive st (fromMaybe 100 columns)
   runInputT settings $ withInterrupt $ do
     when interactive $ outputStr (banner st)
     loop env (ctx0, "")
@@ -130,19 +136,19 @@ step env (ctx, buffer) =
   getInputLine prompt >>= \case
     Nothing -> do
       -- End of input: run whatever is left, reporting it if it is incomplete.
-      unless (all isSpace buffer) $ void (liftIO (evalInput st True ctx buffer))
+      unless (all isSpace buffer) $ void (liftIO (evalInput env True ctx buffer))
       pure Nothing
     Just line -> case trim line of
-      ':' : cmd | null buffer -> fmap (,"") <$> liftIO (command st ctx (words cmd))
+      ':' : cmd | null buffer -> fmap (,"") <$> liftIO (command env ctx cmd)
       "" | not (null buffer) -> do
         -- A blank line ends an unfinished input.
-        ctx' <- liftIO (evalInput st True ctx buffer)
+        ctx' <- liftIO (evalInput env True ctx buffer)
         pure (Just (ctx', ""))
       _ -> do
         let buffer' = buffer <> line <> "\n"
         case parseInput buffer' of
           Incomplete _ -> pure (Just (ctx, buffer'))
-          _ -> Just . (,"") <$> liftIO (evalInput st False ctx buffer')
+          _ -> Just . (,"") <$> liftIO (evalInput env False ctx buffer')
   where
     st = reStyle env
     -- Both prompts are five columns wide, so continued lines line up.
@@ -152,16 +158,29 @@ step env (ctx, buffer) =
       | otherwise = paintPrompt st [Dim] "   ┆ "
 
 -- | Parse and run an input. With @force@, an incomplete input is an error.
-evalInput :: Style -> Bool -> Ctx -> String -> IO Ctx
-evalInput st force ctx src = case parseInput src of
-  Complete actions -> fst <$> runActionsIO (replOptions st) ctx actions
-  Incomplete err | force -> ctx <$ putStr (prettyParseError st err)
+evalInput :: ReplEnv -> Bool -> Ctx -> String -> IO Ctx
+evalInput env force ctx src = case parseInput src of
+  Complete actions -> runAndReport env (Source "input" src) ctx actions
+  Incomplete err | force -> ctx <$ putStr (prettyParseError (reStyle env) err)
   Incomplete _ -> pure ctx
-  Invalid err -> ctx <$ putStr (prettyParseError st err)
+  Invalid err -> ctx <$ putStr (prettyParseError (reStyle env) err)
 
--- | The REPL echoes definitions so every input gets a response.
-replOptions :: Style -> IOOptions
-replOptions st = defaultIOOptions {ioEchoDefinitions = True, ioStyle = st}
+-- | Run located statements and print their outcomes. Errors point into the
+--   given source; definitions are echoed so every input gets a response.
+runAndReport :: ReplEnv -> Source -> Ctx -> [Located PalAction] -> IO Ctx
+runAndReport env src ctx actions = do
+  let (ctx', steps) = runSteps ctx actions
+  mapM_ (mapM_ putStrLn . reportStep (replReport env) {report'source = Just src}) steps
+  pure ctx'
+
+-- | How the REPL reports: echo definitions, in the session's style.
+replReport :: ReplEnv -> Report
+replReport env =
+  defaultReport
+    { report'style = reStyle env,
+      report'echoDefinitions = True,
+      report'width = reWidth env
+    }
 
 --------------------------------------------------------------------------------
 
@@ -172,7 +191,7 @@ replOptions st = defaultIOOptions {ioEchoDefinitions = True, ioStyle = st}
 -- | The result of parsing (possibly partial) REPL input.
 data ReplInput
   = -- | Ready to run.
-    Complete [PalAction]
+    Complete [Located PalAction]
   | -- | The input stopped early (e.g. a rule without its conclusion yet);
     --   more lines may complete it. Carries the error to show if not.
     Incomplete String
@@ -182,12 +201,12 @@ data ReplInput
 -- | Parse REPL input: PAL statements, or a single bare expression to infer.
 parseInput :: String -> ReplInput
 parseInput src =
-  case parse palProgram "<input>" src of
-    Right stmts -> Complete (fmap fromStmt stmts)
+  case parse palProgramLocated "<input>" src of
+    Right stmts -> Complete (fmap (fmap fromStmt) stmts)
     Left progErr
       | startsWithKeyword -> classify progErr
-      | otherwise -> case parse (sc *> pExprApp <* eof) "<input>" src of
-          Right e -> Complete [AInfer e]
+      | otherwise -> case parse (sc *> bareExpression <* eof) "<input>" src of
+          Right located -> Complete [located]
           Left exprErr
             | atEnd exprErr -> Incomplete (errorBundlePretty exprErr)
             | otherwise -> classify progErr
@@ -197,7 +216,14 @@ parseInput src =
       | otherwise = Invalid (errorBundlePretty err)
     atEnd err = errorOffset (NE.head (bundleErrors err)) >= length src
     startsWithKeyword =
-      takeWhile isAlphaNum (dropWhile isSpace src) `elem` ["type", "expr", "rule", "infer"]
+      takeWhile isAlphaNum (dropWhile isSpace src) `elem` ["type", "expr", "rule", "infer", "check", "fails"]
+
+-- | A bare expression, meaning @infer@ it.
+bareExpression :: Parser (Located PalAction)
+bareExpression = do
+  start <- getOffset
+  (e, spans) <- pExprAppLocated
+  pure (Located start (Just spans) (AInfer e))
 
 --------------------------------------------------------------------------------
 
@@ -205,28 +231,47 @@ parseInput src =
 
 --------------------------------------------------------------------------------
 
--- | Run a @:command@. Returns the new context, or 'Nothing' to quit.
-command :: Style -> Ctx -> [String] -> IO (Maybe Ctx)
-command st ctx = \case
-  [c] | c `elem` ["q", "quit"] -> pure Nothing
-  [c] | c `elem` ["h", "help", "?"] -> Just ctx <$ putStr (helpText st)
-  ["ctx"] -> Just ctx <$ putStr (if styleEnabled st then prettyCtx st ctx else show ctx)
-  ["reset"] -> Just mempty <$ putStrLn (note st "context cleared")
-  ("load" : files@(_ : _)) -> Just <$> loadFiles st ctx files
+-- | Run a @:command@ (the text after the colon). Returns the new context, or
+--   'Nothing' to quit.
+command :: ReplEnv -> Ctx -> String -> IO (Maybe Ctx)
+command env ctx line = case (name, words rest) of
+  (c, []) | c `elem` ["q", "quit"] -> pure Nothing
+  (c, []) | c `elem` ["h", "help", "?"] -> Just ctx <$ putStr (helpText st)
+  ("ctx", []) -> Just ctx <$ putStr (if styleEnabled st then prettyCtx st ctx else show ctx)
+  ("reset", []) -> Just mempty <$ putStrLn (note st "context cleared")
+  ("load", files@(_ : _)) -> Just <$> loadFiles env ctx files
+  ("derive", _ : _) -> Just ctx <$ derive False
+  ("latex", _ : _) -> Just ctx <$ derive True
   _ -> Just ctx <$ putStrLn (failure st "unknown command; type :help for a list")
+  where
+    st = reStyle env
+    (name, rest) = dropWhile isSpace <$> break isSpace line
+    -- Infer the expression after the command and show its derivation tree
+    -- (or LaTeX for it). Failures are reported as usual.
+    derive latex = case parse (sc *> bareExpression <* eof) "<input>" rest of
+      Left err -> putStr (prettyParseError st (errorBundlePretty err))
+      Right located -> case runSteps ctx [located] of
+        (_, [Step _ (Inferred (Right d))])
+          | latex -> putStr (derivationLatexDocument d)
+          | otherwise -> mapM_ putStrLn (prettyDerivation st (reWidth env) d)
+        (_, steps) -> mapM_ (mapM_ putStrLn . reportStep (replReport env) {report'source = Just (Source "input" rest)}) steps
 
--- | Load @.pal@ files into the context, printing their inference results.
-loadFiles :: Style -> Ctx -> [FilePath] -> IO Ctx
+-- | Load @.pal@ files into the context, printing their results.
+loadFiles :: ReplEnv -> Ctx -> [FilePath] -> IO Ctx
 loadFiles _ ctx [] = pure ctx
-loadFiles st ctx (file : rest) = do
-  loaded <- try (loadPalFile file)
+loadFiles env ctx (file : rest) = do
+  loaded <- try (loadPalFileLocated file)
   case loaded of
     Left (e :: IOException) -> ctx <$ putStrLn (failure st ("cannot read " <> file <> ": " <> show e))
-    Right (Left err) -> ctx <$ putStr (prettyParseError st err)
-    Right (Right actions) -> do
-      (ctx', _) <- runActionsIO defaultIOOptions {ioStyle = st} ctx actions
+    Right (_, Left err) -> ctx <$ putStr (prettyParseError st err)
+    Right (src, Right actions) -> do
+      let (ctx', steps) = runSteps ctx actions
+          report = (replReport env) {report'source = Just (Source file src), report'echoDefinitions = False}
+      mapM_ (mapM_ putStrLn . reportStep report) steps
       putStrLn (success st "loaded " <> file)
-      loadFiles st ctx' rest
+      loadFiles env ctx' rest
+  where
+    st = reStyle env
 
 -- | The text shown by @:help@.
 helpText :: Style -> String
@@ -236,6 +281,8 @@ helpText st =
       "Unfinished input continues on the next line; a blank line ends it.",
       "",
       heading "Commands:",
+      "  " <> cmd ":derive EXPR" <> "    draw the derivation tree of EXPR",
+      "  " <> cmd ":latex EXPR" <> "     the derivation of EXPR as a LaTeX document",
       "  " <> cmd ":load FILE..." <> "   run .pal files in the current context",
       "  " <> cmd ":ctx" <> "            show the current context",
       "  " <> cmd ":reset" <> "          clear the context",
@@ -249,8 +296,7 @@ helpText st =
     heading = paint st [Bold]
     cmd = paint st [Cyan]
     key = paint st [Yellow]
-    kws = intercalateComma (fmap (paint st [Bold, Blue]) ["type", "expr", "rule", "infer"])
-    intercalateComma = foldr1 (\a b -> a <> ", " <> b)
+    kws = intercalate ", " (fmap (paint st [Bold, Blue]) ["type", "expr", "rule", "infer", "check", "fails"])
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace

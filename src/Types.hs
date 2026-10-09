@@ -105,8 +105,9 @@ instance Show Expr where
 
 --------------------------------------------------------------------------------
 
--- | Represents a type declaration in a PAL program.
---   These represent base type definitions known to the language.
+-- | Represents a type declaration in a PAL program, e.g. @type Arrow\<a, b\>@.
+--   Every type constructor must be declared before it is used, and applied to
+--   exactly as many arguments as it has parameters.
 data TypeDecl = TypeDecl
   { typeDecl'name :: String,
     typeDecl'args :: [String]
@@ -114,8 +115,8 @@ data TypeDecl = TypeDecl
   deriving (Eq, Lift)
 
 instance Show TypeDecl where
-  show (TypeDecl n args) =
-    "type " <> n <> concatMap (" " <>) args
+  show (TypeDecl n []) = "type " <> n
+  show (TypeDecl n args) = "type " <> n <> "<" <> intercalate ", " args <> ">"
 
 -- | Represents an expression declaration in a PAL program.
 --   Associates a literal or constant constructor name with a known type.
@@ -311,6 +312,87 @@ instance Show Err where
     NoRuleMatched e -> "[Error] " <> "No typing rule matched for → " <> show e
     CustomErr msg -> "[Error] " <> msg
 
+-- | One failed check during inference, with where and why it happened.
+data Failure = Failure
+  { failure'err :: Err,
+    -- | Path from the inferred expression to the subterm at fault: child
+    --   indices, so @[1, 0]@ is the first argument of the second argument.
+    --   @[]@ is the expression itself.
+    failure'path :: [Int],
+    -- | The premises being checked when it failed, innermost first.
+    failure'context :: [Frame]
+  }
+  deriving (Eq, Show)
+
+-- | A premise of a rule being checked: which rule, which premise (with the
+--   types known at the time), and the actual subterm it was checking.
+data Frame = Frame
+  { frame'rule :: String,
+    frame'premise :: Premise,
+    frame'subject :: Expr
+  }
+  deriving (Eq, Show)
+
+-- | How serious a 'Diagnostic' is. Errors reject the definition.
+data Severity = SevError | SevWarning
+  deriving (Eq, Show)
+
+-- | A problem found in a definition, e.g. an undeclared type.
+data Diagnostic = Diagnostic
+  { diag'severity :: Severity,
+    diag'message :: String
+  }
+  deriving (Eq, Show)
+
+--------------------------------------------------------------------------------
+
+-- | Derivations
+
+--------------------------------------------------------------------------------
+
+-- | Why a node of a derivation holds.
+data Justification
+  = -- | By a typing rule (its name).
+    ByRule String
+  | -- | By a declaration @expr C : T@.
+    ByDeclaration
+  | -- | By a hypothesis in scope (e.g. a lambda's parameter).
+    ByAssumption
+  deriving (Eq, Show)
+
+-- | A derivation tree: the proof that an expression has a type, built by
+--   inference. Each node is a judgment @e : T@, justified by a rule (with
+--   one sub-derivation per premise), a declaration, or an assumption.
+data Derivation = Derivation
+  { deriv'expr :: Expr,
+    deriv'type :: Type,
+    deriv'by :: Justification,
+    -- | Hypotheses this judgment is made under, introduced by the premise
+    --   that this node proves (e.g. @x : a@ in @x : a ⊢ body : b@).
+    deriv'assumptions :: [(String, Scheme)],
+    deriv'premises :: [Derivation]
+  }
+  deriving (Eq, Show)
+
+--------------------------------------------------------------------------------
+
+-- | Expectations
+
+--------------------------------------------------------------------------------
+
+-- | What a program expects of an expression: @check e : T@ or @fails e@.
+data Expectation
+  = -- | Inference succeeds with this type (up to renaming of type variables).
+    ExpectType Expr Type
+  | -- | Inference fails.
+    ExpectFailure Expr
+  deriving (Eq, Lift)
+
+instance Show Expectation where
+  show = \case
+    ExpectType e t -> "check " <> show e <> " : " <> show t
+    ExpectFailure e -> "fails " <> show e
+
 --------------------------------------------------------------------------------
 
 -- | PAL effect: the core DSL for building and running type systems
@@ -325,6 +407,11 @@ instance Show Err where
 --     * 'DefineExpr' — register a new expression with its declared type.
 --     * 'DefineRule' — introduce a new typing rule.
 --     * 'Infer'      — perform type inference for a given expression.
+--     * 'Expect'     — check an expectation (@check e : T@ or @fails e@);
+--                      'True' when it is met.
+--
+--   A definition that uses an undeclared type, or a malformed rule, is
+--   rejected: it is not added to the context.
 --
 --   These constructors are interpreted by the PAL interpreter(s),
 --   which handle the state and error effects.
@@ -333,6 +420,7 @@ data PAL m a where
   DefineExpr :: ExprDecl -> PAL m ()
   DefineRule :: TypingRule -> PAL m ()
   Infer :: Expr -> PAL m (Either Err Type)
+  Expect :: Expectation -> PAL m Bool
 
 -- | Generate convenient smart constructors (e.g. 'defineType', 'infer')
 --   for use inside PAL programs.

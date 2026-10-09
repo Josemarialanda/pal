@@ -91,6 +91,19 @@
               exec "$ui_bin" "$@"
             '';
           };
+          # Build `pal` and run the regression tests (tests/run.sh).
+          #   run-tests             # run every test
+          #   run-tests --accept    # also rewrite tests/fail/*.out from the current output
+          run-tests = pkgs.writeShellApplication {
+            name = "run-tests";
+            runtimeInputs = [ hspkgs.cabal-install pkgs.hpack pkgs.git pkgs.diffutils ];
+            text = ''
+              cd "$(git rev-parse --show-toplevel)"
+              hpack >/dev/null
+              cabal build -v0 exe:pal
+              PAL="$(cabal list-bin -v0 exe:pal)" exec bash tests/run.sh "$@"
+            '';
+          };
           # Build and run the PAL examples.
           #   run-examples                    # run every example (results only)
           #   run-examples dsl                # run a group: code | data | dsl | file
@@ -110,6 +123,13 @@
         in
         {
           formatter = format;
+
+          # `nix flake check` runs the regression tests against the packaged `pal`.
+          checks.default = pkgs.runCommand "pal-tests" { nativeBuildInputs = [ pkgs.pal pkgs.bash pkgs.diffutils ]; } ''
+            cd ${./.}
+            PAL=pal bash tests/run.sh
+            touch $out
+          '';
           apps.format = { type = "app"; program = "${format}/bin/format"; };
 
           devShell = hspkgs.shellFor {
@@ -123,6 +143,7 @@
               format
               pal
               run-examples
+              run-tests
               pal-ui
               pkgs.bashInteractive
               pkgs.hpack

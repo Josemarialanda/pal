@@ -224,7 +224,7 @@ stlc =
 type Bool
 
 -- Function type constructor (a -> b)
-type Arrow
+type Arrow<a, b>
 
 -- Core forms (as constructors)
 expr True  : Bool

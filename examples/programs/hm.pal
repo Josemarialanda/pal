@@ -6,8 +6,8 @@
 
 type Num
 type Bool
-type Arrow
-type Pair
+type Arrow<a, b>
+type Pair<a, b>
 
 expr LitInt : Num
 expr True   : Bool
@@ -46,19 +46,19 @@ rule MonoLet:
   MonoLet(x, value, body) : b
 
 -- id is used at Bool and at Num: fine with Let.
-infer Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))         -- Pair<Bool, Num>
+check Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt))) : Pair<Bool, Num>
 
 -- const, used at two different pairs of types.
-infer Let(k, Lam(x, Lam(y, x)), Pair(App(App(k, True), LitInt), App(App(k, LitInt), True)))  -- Pair<Bool, Num>
+check Let(k, Lam(x, Lam(y, x)), Pair(App(App(k, True), LitInt), App(App(k, LitInt), True))) : Pair<Bool, Num>
 
 -- A let-bound function stays polymorphic inside another let.
-infer Let(id, Lam(x, x), Let(twice, Lam(f, Lam(x, App(f, App(f, x)))), App(App(twice, id), LitInt)))  -- Num
+check Let(id, Lam(x, x), Let(twice, Lam(f, Lam(x, App(f, App(f, x)))), App(App(twice, id), LitInt))) : Num
 
 -- Generalisation respects the context: z's type is y's type, and y is a
 -- lambda parameter, so z is not generalised and both uses must agree.
-infer Lam(y, Let(z, y, Pair(z, z)))                                     -- Arrow<a, Pair<a, a>>
+check Lam(y, Let(z, y, Pair(z, z))) : Arrow<a, Pair<a, a>>
 
 -- Expected failures:
-infer MonoLet(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))     -- ✗ monomorphic let
-infer Lam(f, Pair(App(f, True), App(f, LitInt)))                       -- ✗ lambda-bound f is monomorphic
-infer Lam(y, Let(z, y, Pair(App(Not, z), App(IsZero, z))))             -- ✗ z shares y's type
+fails MonoLet(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))  -- monomorphic let
+fails Lam(f, Pair(App(f, True), App(f, LitInt)))  -- lambda-bound f is monomorphic
+fails Lam(y, Let(z, y, Pair(App(Not, z), App(IsZero, z))))  -- z shares y's type

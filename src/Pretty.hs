@@ -34,6 +34,8 @@ module Pretty
     prettyType,
     prettyExpr,
     prettyRule,
+    prettyJudgment,
+    prettyPremise,
     prettyCtx,
 
     -- * Messages

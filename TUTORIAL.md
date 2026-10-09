@@ -44,7 +44,7 @@ In a rule, `x` and `y` are placeholders that stand for *any* expression. A rule 
   True : Bool
 ```
 
-To typecheck an expression, PAL stacks rules into a **derivation tree**, with the expression at the root and axioms at the leaves. If such a tree exists, the expression is well-typed. If not, PAL reports which premise failed.
+To typecheck an expression, PAL stacks rules into a **derivation tree**, with the expression at the root and axioms at the leaves. If such a tree exists, the expression is well-typed. If not, PAL reports which premise failed. In the REPL, `:derive e` draws the tree PAL built for `e`. `pal --derivations` and the web UI show them too.
 
 ---
 
@@ -64,6 +64,8 @@ rule Not:              rule And:
                          And(x, y) : Bool
 ```
 
+Every type must be declared with `type` before it is used. A typo such as `expr T : Bol` is rejected, with a hint: *undeclared type Bol (did you mean Bool?)*.
+
 ### How `infer And(True, Not(False))` works
 
 1. **Pick a rule.** PAL finds the rule whose conclusion has the same constructor (`And`) and the same number of arguments (2).
@@ -73,14 +75,14 @@ rule Not:              rule And:
    - `Not(False) : Bool`? This applies the `Not` rule, and `False` is declared `Bool`. ✓
 4. **Return the conclusion's type:** `Bool`.
 
-That builds this derivation:
+That builds this derivation, as `:derive And(True, Not(False))` draws it:
 
 ```
-                          ───────────── expr
-                          False : Bool
- ───────────── expr     ───────────────── Not
-  True : Bool           Not(False) : Bool
- ─────────────────────────────────────────── And
+                      ────────────── expr
+                       False : Bool
+───────────── expr    ─────────────────── Not
+ True : Bool           Not(False) : Bool
+───────────────────────────────────────────── And
         And(True, Not(False)) : Bool
 ```
 
@@ -92,6 +94,18 @@ That builds this derivation:
 ```
 
 The first has no `Not` rule with two arguments. The second matches, but the premise `y : Bool` doesn't hold, because `LitInt` is a `Num`.
+
+PAL points at the culprit and says which premise it was checking:
+
+```
+pal❯ And(True, LitInt)
+✗ And(True, LitInt) -> [Error] Type mismatch: expected Bool, got Num
+    at input:1:11
+      |
+    1 | And(True, LitInt)
+      |           ^^^^^^
+    in rule And, premise y : Bool  (checking LitInt)
+```
 
 ### The search, in full
 
@@ -178,7 +192,7 @@ Variables that are never solved are printed as `a`, `b`, … in the result. For 
 
 ## 5. Polymorphic constants
 
-Types can take parameters, such as `Maybe<Num>` or `Pair<Num, Bool>`. A declared constant can mention type variables too:
+Types can take parameters, such as `Maybe<Num>` or `Pair<Num, Bool>`. Declare them with their parameters, `type Maybe<a>`, and PAL checks that every use has the right number. A declared constant can mention type variables too:
 
 ```haskell
 expr Nothing : Maybe<a>
@@ -288,7 +302,7 @@ Two details:
 
 ## 8. More type systems
 
-The files in [`examples/programs/`](examples/programs/) combine the ideas above into complete, classic type systems. Open any one with `pal -i examples/programs/NAME.pal`.
+The files in [`examples/programs/`](examples/programs/) combine the ideas above into complete, classic type systems. Open any one with `pal -i examples/programs/NAME.pal`. Each file states its expected results with `check e : T` and `fails e`, so running it is also a test.
 
 | File           | System                          | What's new                                  |
 | -------------- | ------------------------------- | ------------------------------------------- |
@@ -322,10 +336,10 @@ rule Case:
 
 ## 9. Exercises
 
-Start with `pal -i examples/programs/stlc.pal`, then add rules as you go.
+Start with `pal -i examples/programs/stlc.pal`, then add rules as you go. Write each answer as a `check` (or `fails`) and PAL will tell you whether you are right.
 
 1. Add `rule Eq: x : a, y : a -> Eq(x, y) : Bool`. What do `Eq(LitInt, LitInt)` and `Eq(LitInt, True)` give?
-2. Add `expr Nil : List<a>` and a `Cons` rule. Type `Cons(True, Cons(True, Nil))`.
+2. Declare `type List<a>`, add `expr Nil : List<a>` and a `Cons` rule. Type `Cons(True, Cons(True, Nil))`.
 3. Predict the type of `Lam(f, Lam(x, App(f, x)))` before you run it.
 4. Why is `App(Lam(x, x), Lam(y, y))` typed `Arrow<a, a>`?
 5. Write a `Compose(f, g)` rule, then try `Compose(Not, IsZero)`.
@@ -333,8 +347,8 @@ Start with `pal -i examples/programs/stlc.pal`, then add rules as you go.
 <details>
 <summary>Answers</summary>
 
-1. `Bool`, then a mismatch: the shared `a` forces both arguments to have the same type.
-2. `List<Bool>`, using:
+1. `check Eq(LitInt, LitInt) : Bool` and `fails Eq(LitInt, True)`: the shared `a` forces both arguments to have the same type.
+2. `check Cons(True, Cons(True, Nil)) : List<Bool>`, using:
    ```haskell
    rule Cons:
      x  : a
@@ -342,9 +356,9 @@ Start with `pal -i examples/programs/stlc.pal`, then add rules as you go.
    ->
      Cons(x, xs) : List<a>
    ```
-3. `Arrow<Arrow<a, b>, Arrow<a, b>>`.
-4. The argument is the identity function, so the result is the identity function's type.
-5. `Arrow<Num, Bool>`, using:
+3. `check Lam(f, Lam(x, App(f, x))) : Arrow<Arrow<a, b>, Arrow<a, b>>`.
+4. `check App(Lam(x, x), Lam(y, y)) : Arrow<a, a>`. The argument is the identity function, so the result is the identity function's type.
+5. `check Compose(Not, IsZero) : Arrow<Num, Bool>`, using:
    ```haskell
    rule Compose:
      f : Arrow<b, c>

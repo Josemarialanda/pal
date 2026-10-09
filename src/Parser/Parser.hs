@@ -35,12 +35,13 @@ module Parser.Parser where
 import Data.Char (isLower)
 import Data.Maybe (listToMaybe)
 import Data.Void (Void)
-import Parser.Types (PalStmt (..))
+import Parser.Types (Located (..), PalStmt (..), Span (..), SpanTree (..))
 import Text.Megaparsec
   ( Parsec,
     between,
     empty,
     eof,
+    getOffset,
     many,
     manyTill,
     notFollowedBy,
@@ -119,23 +120,41 @@ keyword w = lexeme (try (string w <* notFollowedBy identChar))
 -- * @expr@ declarations ('SExpr')
 -- * @rule@ definitions ('SRule')
 -- * @infer@ expressions ('SInfer')
+-- * @check@ expectations ('SCheck') and @fails@ expectations ('SFails')
 --
 -- The whole input must be consumed; unrecognised input is a parse error.
 palProgram :: Parser [PalStmt]
-palProgram = sc *> many (pType <|> pExpr <|> pRule <|> pInfer) <* eof
+palProgram = fmap loc'value <$> palProgramLocated
+
+-- | Like 'palProgram', also recording where each statement starts and the
+--   spans of the expression of each @infer@, @check@ and @fails@.
+palProgramLocated :: Parser [Located PalStmt]
+palProgramLocated = sc *> many located <* eof
+  where
+    located = do
+      start <- getOffset
+      (stmt, spans) <- statement
+      pure (Located start spans stmt)
+    statement =
+      ((,Nothing) <$> (pType <|> pExpr <|> pRule))
+        <|> pInfer
+        <|> pCheck
+        <|> pFails
 
 ------------------------------------------------------------
 -- Type declarations
 ------------------------------------------------------------
 
--- | Parse a type declaration, e.g.:
+-- | Parse a type declaration, with its parameters if it takes any, e.g.:
 --
 -- > type Num
+-- > type Arrow<a, b>
 pType :: Parser PalStmt
 pType = do
   _ <- keyword "type"
   n <- ident
-  pure (SType (TypeDecl n []))
+  params <- option [] (angles (ident `sepBy` symbol ","))
+  pure (SType (TypeDecl n params))
 
 ------------------------------------------------------------
 -- Type parser
@@ -257,10 +276,31 @@ pConclusion = do
 -- > infer Add(LitInt, LitInt)
 --
 -- Produces an 'SInfer' statement representing a type query.
-pInfer :: Parser PalStmt
+pInfer :: Parser (PalStmt, Maybe SpanTree)
 pInfer = do
   _ <- keyword "infer"
-  SInfer <$> pExprApp
+  (e, spans) <- pExprAppLocated
+  pure (SInfer e, Just spans)
+
+-- | Parse an expected type, e.g.:
+--
+-- > check Lam(x, x) : Arrow<a, a>
+pCheck :: Parser (PalStmt, Maybe SpanTree)
+pCheck = do
+  _ <- keyword "check"
+  (e, spans) <- pExprAppLocated
+  _ <- symbol ":"
+  t <- pTypeExpr
+  pure (SCheck e t, Just spans)
+
+-- | Parse an expected failure, e.g.:
+--
+-- > fails Add(True, LitInt)
+pFails :: Parser (PalStmt, Maybe SpanTree)
+pFails = do
+  _ <- keyword "fails"
+  (e, spans) <- pExprAppLocated
+  pure (SFails e, Just spans)
 
 ------------------------------------------------------------
 -- Expression applications
@@ -279,15 +319,29 @@ pInfer = do
 -- * lowercase identifiers → 'EVar'
 -- * uppercase identifiers → 'ECon'
 pExprApp :: Parser Expr
-pExprApp = do
-  name <- ident
-  args <- parens (pExprApp `sepBy` symbol ",") <|> pure []
-  pure $
-    case listToMaybe name of
-      Just c
-        | null args && isLower c -> EVar name
-        | otherwise -> ECon name args
-      Nothing -> ECon name args -- defensive; 'ident' never yields ""
+pExprApp = fst <$> pExprAppLocated
+
+-- | Like 'pExprApp', also returning the span of the expression and of each
+--   argument (excluding trailing whitespace and comments).
+pExprAppLocated :: Parser (Expr, SpanTree)
+pExprAppLocated = do
+  start <- getOffset
+  name <- (:) <$> letterChar <*> many identChar
+  nameEnd <- getOffset
+  sc
+  (args, end) <- option ([], nameEnd) $ do
+    _ <- symbol "("
+    args <- pExprAppLocated `sepBy` symbol ","
+    _ <- string ")"
+    end <- getOffset
+    sc
+    pure (args, end)
+  let expr = case listToMaybe name of
+        Just c
+          | null args && isLower c -> EVar name
+          | otherwise -> ECon name (fmap fst args)
+        Nothing -> ECon name (fmap fst args) -- defensive; identifiers are never empty
+  pure (expr, SpanTree (Span start end) (fmap snd args))
 
 ------------------------------------------------------------
 -- Helpers

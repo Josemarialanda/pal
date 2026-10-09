@@ -30,12 +30,12 @@ rule IsZero:
 ->
   IsZero(n) : Bool
 
-infer Succ(Succ(Zero))                         -- Nat
-infer IsZero(Pred(Succ(Zero)))                 -- Bool
-infer If(IsZero(Zero), Succ(Zero), Zero)       -- Nat
-infer If(False, True, IsZero(Succ(Zero)))      -- Bool
+check Succ(Succ(Zero)) : Nat
+check IsZero(Pred(Succ(Zero))) : Bool
+check If(IsZero(Zero), Succ(Zero), Zero) : Nat
+check If(False, True, IsZero(Succ(Zero))) : Bool
 
 -- Expected failures:
-infer Succ(True)                               -- ✗ True is not a Nat
-infer If(Zero, True, False)                    -- ✗ the condition must be Bool
-infer If(True, Zero, False)                    -- ✗ the branches differ
+fails Succ(True)  -- True is not a Nat
+fails If(Zero, True, False)  -- the condition must be Bool
+fails If(True, Zero, False)  -- the branches differ

@@ -1,0 +1,54 @@
+-- Unification: type variables, the occurs check, and `check` up to renaming.
+
+type Bool
+type Num
+type Arrow<a, b>
+type Pair<a, b>
+type Maybe<a>
+
+expr True    : Bool
+expr Zero    : Num
+expr Nothing : Maybe<a>          -- polymorphic: fresh `a` at each use
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Pair<a, b>
+
+rule If:
+  c : Bool
+  t : a
+  e : a
+->
+  If(c, t, e) : a
+
+-- `check` compares up to renaming of type variables.
+check Lam(x, x) : Arrow<a, a>
+check Lam(x, x) : Arrow<q, q>
+check Lam(x, Lam(y, x)) : Arrow<a, Arrow<b, a>>
+
+-- Each use of a polymorphic constant is independent.
+check Pair(Nothing, Nothing) : Pair<Maybe<a>, Maybe<b>>
+check If(True, Nothing, Nothing) : Maybe<a>
+
+-- Unification flows through application.
+check App(Lam(x, If(x, Zero, Zero)), True) : Num
+check Lam(f, App(f, True)) : Arrow<Arrow<Bool, a>, a>
+
+-- Mismatches and the occurs check.
+fails If(True, Zero, True)
+fails App(True, Zero)
+fails Lam(x, App(x, x))
+fails If(Zero, True, True)

@@ -3,7 +3,7 @@
 
 type Num
 type Bool
-type Arrow
+type Arrow<a, b>
 
 expr LitInt : Num
 expr True   : Bool
@@ -40,15 +40,15 @@ rule Let:
 ->
   Let(x, value, body) : b
 
-infer App(Not, True)                          -- Bool
-infer If(App(IsZero, LitInt), LitInt, LitInt) -- Num
-infer Lam(x, x)                               -- Arrow<a, a>
-infer Lam(x, App(Not, x))                     -- Arrow<Bool, Bool>
-infer Lam(f, Lam(x, App(f, App(f, x))))       -- Arrow<Arrow<a, a>, Arrow<a, a>>
-infer App(Lam(x, If(x, LitInt, LitInt)), True) -- Num
-infer Let(n, LitInt, App(IsZero, n))          -- Bool
-infer Lam(x, Lam(x, x))                       -- Arrow<a, Arrow<b, b>> (inner x shadows)
-infer App(Not, LitInt)                        -- ✗ Not expects Bool
-infer App(Lam(x, App(Not, x)), LitInt)        -- ✗ the lambda expects Bool
-infer Lam(x, App(x, x))                       -- ✗ infinite type
-infer Lam(x, y)                               -- ✗ y is not in scope
+check App(Not, True) : Bool
+check If(App(IsZero, LitInt), LitInt, LitInt) : Num
+check Lam(x, x) : Arrow<a, a>
+check Lam(x, App(Not, x)) : Arrow<Bool, Bool>
+check Lam(f, Lam(x, App(f, App(f, x)))) : Arrow<Arrow<a, a>, Arrow<a, a>>
+check App(Lam(x, If(x, LitInt, LitInt)), True) : Num
+check Let(n, LitInt, App(IsZero, n)) : Bool
+check Lam(x, Lam(x, x)) : Arrow<a, Arrow<b, b>>  -- inner x shadows
+fails App(Not, LitInt)  -- Not expects Bool
+fails App(Lam(x, App(Not, x)), LitInt)  -- the lambda expects Bool
+fails Lam(x, App(x, x))  -- infinite type
+fails Lam(x, y)  -- y is not in scope

@@ -106,6 +106,8 @@ genStmtInit = \case
   SExpr ed -> noBindS [|T.defineExpr ed|]
   SRule tr -> noBindS [|T.defineRule tr|]
   SInfer e -> bindS wildP [|T.infer e|]
+  SCheck e t -> bindS wildP [|T.expect (T.ExpectType e t)|]
+  SFails e -> bindS wildP [|T.expect (T.ExpectFailure e)|]
 
 -- | Generate the final Template Haskell statement, whose result becomes the result
 --   of the entire quasiquoted expression.
@@ -121,3 +123,6 @@ genStmtLast = \case
   SExpr ed -> noBindS [|T.defineExpr ed >> T.infer (T.ECon "Unit" [])|]
   SRule tr -> noBindS [|T.defineRule tr >> T.infer (T.ECon "Unit" [])|]
   SInfer e -> noBindS [|T.infer e|]
+  -- An expectation as the last statement: the result is the inference itself.
+  SCheck e t -> noBindS [|T.expect (T.ExpectType e t) >> T.infer e|]
+  SFails e -> noBindS [|T.expect (T.ExpectFailure e) >> T.infer e|]

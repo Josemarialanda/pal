@@ -1,0 +1,26 @@
+✗ Two(True, Nope) -> [Error] Type mismatch: expected Num, got Bool
+    at tests/fail/errors.pal:29:11
+       |
+    29 | infer Two(True, Nope)                 -- two independent errors
+       |           ^^^^
+    in rule Two, premise x : Num  (checking True)
+    and: Unknown expression → Nope
+      at tests/fail/errors.pal:29:17
+         |
+      29 | infer Two(True, Nope)                 -- two independent errors
+         |                 ^^^^
+      in rule Two, premise y : Num  (checking Nope)
+✗ Lam(y, App(Not, N)) -> [Error] Type mismatch: expected Bool, got Num
+    at tests/fail/errors.pal:30:23
+       |
+    30 | infer Lam(y, App(Not, N))             -- an error deep inside, with context
+       |                       ^
+    in rule App, premise x : Bool  (checking N)
+    in rule Lam, premise x : a ⊢ body : b  (checking App(Not, N))
+✗ check Lam(x, x) : Arrow<Bool, Bool> — inferred Arrow<a, a>
+    at tests/fail/errors.pal:31:1
+✗ check App(Not, True) : Boolean — undeclared type Boolean (declare it first: type Boolean)
+    at tests/fail/errors.pal:32:1
+✗ fails App(Not, True) — but App(Not, True) :: Bool
+    at tests/fail/errors.pal:33:1
+3 of 3 checks failed

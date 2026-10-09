@@ -26,6 +26,7 @@ library
       Types
       Program
       Pretty
+      Report
       Repl
       Interpreters.Core
       Interpreters.Debug

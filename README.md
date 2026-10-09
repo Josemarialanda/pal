@@ -11,8 +11,9 @@ rule Not:
 ->
   Not(x) : Bool
 
-infer Not(Not(True))   -- ✓ Bool
-infer Not(True, True)  -- ✗ Arity mismatch: expected 1 arg(s), got 2
+infer Not(Not(True))          -- ✓ Bool
+check Not(True) : Bool        -- ✓ the type you expected
+fails Not(True, True)         -- ✓ a type error, as expected
 ```
 
 New to type systems? **[Read the tutorial →](TUTORIAL.md)**
@@ -26,23 +27,27 @@ nix develop                              # or let direnv load the shell
 
 pal                                      # interactive REPL
 pal FILE.pal                             # typecheck a file
+pal --derivations FILE.pal               # … and draw each derivation tree
 pal -i examples/programs/stlc.pal        # REPL with a file preloaded
 pal-ui                                   # web UI, opens in your browser
 run-examples                             # run every bundled example
+run-tests                                # run the regression tests
 ```
 
 The dev shell's `pal` and `pal-ui` rebuild from your working tree first, so they always run your latest code.
 
-`pal` exits with **1** if any `infer` fails, so it works as a checker in scripts and CI.
+`pal` exits with **1** if a definition is rejected, an `infer` fails, or a `check` / `fails` isn't met, so a `.pal` file doubles as a test suite in scripts and CI.
 
 ## The language
 
-| Statement                           | Meaning                                         |
-| ----------------------------------- | ----------------------------------------------- |
-| `type T`                            | Declare a type name (informational only)        |
-| `expr C : T`                        | Axiom: constant `C` has type `T`                |
-| `rule Name:` *premises* `->` *conclusion* | Inference rule                            |
-| `infer e`                           | Infer the type of `e`                           |
+| Statement                           | Meaning                                                   |
+| ----------------------------------- | --------------------------------------------------------- |
+| `type T`, `type T<a, b>`            | Declare a type, with its parameters                       |
+| `expr C : T`                        | Axiom: constant `C` has type `T`                          |
+| `rule Name:` *premises* `->` *conclusion* | Inference rule                                      |
+| `infer e`                           | Infer the type of `e`                                     |
+| `check e : T`                       | Expect `e` to have type `T` (type variables may be renamed) |
+| `fails e`                           | Expect `e` to be a type error                             |
 
 Premises come in four shapes:
 
@@ -55,7 +60,30 @@ x : gen A |- body : B    -- generalised: x is polymorphic in body (let-polymorph
 
 **Naming:** `Uppercase` is a constructor or concrete type (`Add(x, y)`, `Maybe<Num>`). `lowercase` is a variable or type variable (`x`, `a`). Comments start with `--`.
 
-**Errors:**
+**Definitions are checked.** A definition is rejected (with a reason, and `pal` exits 1) if it uses a type that wasn't declared, gives a type the wrong number of arguments, or is a rule whose premise uses a variable that its conclusion doesn't bind:
+
+```text
+✗ expr Not rejected: undeclared type Bol (did you mean Bool?)
+✗ expr Id rejected: Arrow takes 2 type arguments, but is given 1
+✗ rule Weird rejected: premise variable z does not appear in the conclusion W(x)
+```
+
+**Errors** point at the part of the expression at fault and list the premises being checked. Every independent error is reported, not just the first:
+
+```text
+✗ Two(True, Nope) -> [Error] Type mismatch: expected Num, got Bool
+    at tests/fail/errors.pal:29:11
+       |
+    29 | infer Two(True, Nope)                 -- two independent errors
+       |           ^^^^
+    in rule Two, premise x : Num  (checking True)
+    and: Unknown expression → Nope
+      at tests/fail/errors.pal:29:17
+         |
+      29 | infer Two(True, Nope)                 -- two independent errors
+         |                 ^^^^
+      in rule Two, premise y : Num  (checking Nope)
+```
 
 | Error                    | Cause                                                  |
 | ------------------------ | ------------------------------------------------------ |
@@ -64,6 +92,18 @@ x : gen A |- body : B    -- generalised: x is polymorphic in body (let-polymorph
 | `Unknown expression`     | No rule, no `expr`, and not a bound variable           |
 | `Infinite type`          | A type would contain itself (`a ~ Arrow<a, b>`)        |
 | `No typing rule matched` | A constant was given arguments                         |
+
+**Derivations.** On success PAL has built a derivation tree, the proof that the expression has its type. `pal --derivations`, the REPL's `:derive` and the web UI draw it:
+
+```text
+          x : Bool ⊢ x : Bool
+    ─────────────────────────────── Lam    ───────────── expr
+     Lam(x, x) : Arrow<Bool, Bool>          True : Bool
+    ───────────────────────────────────────────────────────── App
+                   App(Lam(x, x), True) : Bool
+```
+
+`:latex` (and the web UI's *Copy LaTeX*) gives the same tree as a [`mathpartir`](https://ctan.org/pkg/mathpartir) document.
 
 ## The REPL
 
@@ -86,19 +126,22 @@ pal❯ Not(True)
 
 | Command         | Effect                          |
 | --------------- | ------------------------------- |
+| `:derive EXPR`  | Draw the derivation tree of `EXPR` |
+| `:latex EXPR`   | The same, as a LaTeX document   |
 | `:load FILE...` | Run files in the current context |
 | `:ctx`          | Show the context                |
 | `:reset`        | Clear the context               |
 | `:help` `:quit` | Help / exit (also Ctrl-D)       |
 
-`pal` flags: `-i FILE...` runs files and then opens a REPL with their context, and `--no-color` turns off colour (as do `NO_COLOR` and piped output).
+`pal` flags: `-i FILE...` runs files and then opens a REPL with their context, `--derivations` draws the derivation tree under each result, and `--no-color` turns off colour (as do `NO_COLOR` and piped output).
 
 ## The web UI
 
 `pal-ui` serves an editor on `http://127.0.0.1:7337` and opens it in your browser. It checks your program as you type:
 
-- The editor highlights PAL syntax. Syntax errors are marked on their line, and clicking the message jumps to it.
-- Results are highlighted like the REPL's, and rules are drawn as inference rules.
+- The editor highlights PAL syntax. Syntax errors are marked on their line, the part of an expression at fault is underlined, and clicking an error jumps to it.
+- Results are highlighted like the REPL's, rules are drawn as inference rules, and rejected definitions and unmet `check` / `fails` are flagged.
+- Open **derivation** under a result to see its derivation tree, or copy it as LaTeX.
 - Your program is saved in the browser between visits.
 - The theme menu offers every [Tinted Theming](https://github.com/tinted-theming/schemes) colour scheme (base16, base24 and tinted8, vendored in [`ui/themes/`](ui/themes/)).
 
@@ -133,7 +176,7 @@ run-examples --trace dsl/maybe   # every step, with context dumps
 
 ## Using PAL from Haskell
 
-A PAL program is a [Polysemy](https://hackage.haskell.org/package/polysemy) effect with four operations:
+A PAL program is a [Polysemy](https://hackage.haskell.org/package/polysemy) effect with five operations:
 
 ```haskell
 data PAL m a where
@@ -141,6 +184,7 @@ data PAL m a where
   DefineExpr :: ExprDecl   -> PAL m ()
   DefineRule :: TypingRule -> PAL m ()
   Infer      :: Expr       -> PAL m (Either Err Type)
+  Expect     :: Expectation -> PAL m Bool             -- check e : T / fails e
 ```
 
 You can write programs three ways. All of them run on the same engine:
@@ -159,7 +203,7 @@ Run a program with one of three interpreters:
 | `Interpreters.Debug` | Every step plus the full context        |
 | `Interpreters.IO`    | One line per result, and returns the final context (used by `pal`) |
 
-`Program.loadPalFile` parses a `.pal` file into `[PalAction]`.
+`Program.loadPalFile` parses a `.pal` file into `[PalAction]`. For the full detail (derivations, every error with its location and context, rejected definitions), `Program.runSteps` runs located statements purely and returns an `Outcome` per statement; [`Report`](src/Report.hs) renders outcomes and derivations (text or LaTeX). `pal`, its REPL and `pal-ui` all use these.
 
 ## Development
 
@@ -170,11 +214,16 @@ Run a program with one of three interpreters:
 | `format` / `nix fmt`      | Format Haskell sources with ormolu         |
 | `format --check`          | Fail if anything is unformatted            |
 | `run-examples`            | Build and run the examples                 |
+| `run-tests`               | Run the regression tests ([`tests/`](tests/)) |
+| `run-tests --accept`      | Also rewrite `tests/fail/*.out` from the current output |
+| `nix flake check`         | Run the tests against a sandboxed build    |
 
 | Path                                                                       | Contents                         |
 | -------------------------------------------------------------------------- | -------------------------------- |
 | [`src/Types.hs`](src/Types.hs)                                             | Types, terms, rules, the effect  |
-| [`src/Interpreters/Common/Actions.hs`](src/Interpreters/Common/Actions.hs) | Inference and unification        |
+| [`src/Interpreters/Common/Actions.hs`](src/Interpreters/Common/Actions.hs) | Inference, unification, derivations, definition checks |
+| [`src/Program.hs`](src/Program.hs), [`src/Report.hs`](src/Report.hs)       | Running statements step by step; reporting outcomes |
+| [`tests/`](tests/)                                                           | `pass/` must succeed; `fail/` must fail with the output in its `.out` file |
 | [`src/Parser/`](src/Parser/)                                               | Syntax and quasiquoter           |
 | [`src/Repl.hs`](src/Repl.hs), [`app/Main.hs`](app/Main.hs)                 | REPL and the `pal` command       |
 | [`ui/`](ui/)                                                                | The web UI: [`ui/static/index.html`](ui/static/index.html) (the page) and the server it is embedded in |

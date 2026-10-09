@@ -11,6 +11,7 @@
 --   * and returns either a successful inferred type or a type error ('Err').
 module Interpreters.Core where
 
+import Control.Monad (void)
 import qualified Interpreters.Common.Actions as Actions
 import Polysemy (Members, Sem, interpret, run)
 import Polysemy.State (State, evalState, get, runState)
@@ -64,12 +65,16 @@ runInterpreterWithCtx ctx =
 --   * 'DefineExpr' — define a new expression and its type.
 --   * 'DefineRule' — add a new typing rule to the context.
 --   * 'Infer'      — perform type inference for a given expression.
+--   * 'Expect'     — check an expectation (@check e : T@ or @fails e@).
 interpreter ::
   (Members '[State Ctx] r) =>
   Sem (PAL ': r) a ->
   Sem r a
 interpreter = interpret $ \case
-  DefineType td -> Actions.defineType td
-  DefineExpr ed -> Actions.defineExpr ed
-  DefineRule tr -> Actions.defineRule tr
+  -- Malformed definitions are rejected silently; the other interpreters
+  -- report why.
+  DefineType td -> void (Actions.defineType td)
+  DefineExpr ed -> void (Actions.defineExpr ed)
+  DefineRule tr -> void (Actions.defineRule tr)
   Infer e -> Actions.infer e <$> get
+  Expect x -> (\ctx -> let (_, _, met) = Actions.checkExpectation ctx x in met) <$> get

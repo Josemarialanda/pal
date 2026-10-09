@@ -31,14 +31,15 @@ module Interpreters.IO
   )
 where
 
-import Control.Monad (when)
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (catMaybes)
 import qualified Interpreters.Common.Actions as Actions
 import Polysemy (Embed, Members, Sem, embed, interpret, runM)
 import Polysemy.State (State, get, runState)
-import Pretty (Style, plain, prettyDefinedExpr, prettyDefinedRule, prettyDefinedType, prettyResult)
-import Program (PalAction, runPalAction)
-import Types (Ctx, Err, Expr, PAL (..), Type)
+import Pretty (Style, plain, prettyResult)
+import Program (Outcome (..), PalAction (..), runPalAction)
+import Report (Report (..), defaultReport, reportOutcome)
+import Types (Ctx, Derivation (..), Err, Expr, Failure (..), PAL (..), Type)
 
 --------------------------------------------------------------------------------
 
@@ -107,23 +108,24 @@ interpreter ::
   Sem (PAL ': r) a ->
   Sem r a
 interpreter opts = interpret $ \case
-  DefineType td -> do
-    Actions.defineType td
-    echo (prettyDefinedType st td)
-  DefineExpr ed -> do
-    Actions.defineExpr ed
-    echo (prettyDefinedExpr st ed)
-  DefineRule tr -> do
-    Actions.defineRule tr
-    echo (prettyDefinedRule st tr)
+  DefineType td -> define (ADefineType td) (Actions.defineType td)
+  DefineExpr ed -> define (ADefineExpr ed) (Actions.defineExpr ed)
+  DefineRule tr -> define (ADefineRule tr) (Actions.defineRule tr)
   Infer e -> do
-    r <- Actions.infer e <$> get
-    embed (putStrLn (prettyResult st e r))
-    pure r
+    result <- (`Actions.inferDetailed` e) <$> get
+    say (AInfer e) (Inferred result)
+    pure (either (Left . failure'err . NE.head) (Right . deriv'type) result)
+  Expect x -> do
+    (diagnostics, result, met) <- (`Actions.checkExpectation` x) <$> get
+    say (AExpect x) (Expected x diagnostics result met)
+    pure met
   where
-    st = ioStyle opts
-    echo :: (Members '[Embed IO] r') => String -> Sem r' ()
-    echo msg = when (ioEchoDefinitions opts) (embed (putStrLn msg))
+    report = defaultReport {report'style = ioStyle opts, report'echoDefinitions = ioEchoDefinitions opts}
+    say :: (Members '[Embed IO] r') => PalAction -> Outcome -> Sem r' ()
+    say action outcome = embed (mapM_ putStrLn (reportOutcome report Nothing action outcome))
+    define action act = do
+      diagnostics <- act
+      say action (if Actions.hasErrors diagnostics then Rejected diagnostics else Defined diagnostics)
 
 -- | Format an inference result as a single plain line.
 formatResult :: Expr -> Either Err Type -> String

@@ -2,8 +2,8 @@
 
 type Num
 type Bool
-type List
-type Arrow
+type List<a>
+type Arrow<a, b>
 
 expr LitInt : Num
 expr True   : Bool
@@ -40,14 +40,14 @@ rule Fold:
 ->
   Fold(f, z, xs) : b
 
-infer Nil                                                         -- List<a>
-infer Cons(LitInt, Cons(LitInt, Nil))                             -- List<Num>
-infer Cons(Nil, Nil)                                              -- List<List<a>>
-infer Head(Cons(True, Nil))                                       -- Bool
-infer Fold(Add, LitInt, Cons(LitInt, Cons(LitInt, Nil)))          -- Num: sum
-infer Lam(xs, Fold(Lam(x, Lam(acc, Cons(x, acc))), Nil, xs))      -- Arrow<List<a>, List<a>>: copy
+check Nil : List<a>
+check Cons(LitInt, Cons(LitInt, Nil)) : List<Num>
+check Cons(Nil, Nil) : List<List<a>>
+check Head(Cons(True, Nil)) : Bool
+check Fold(Add, LitInt, Cons(LitInt, Cons(LitInt, Nil))) : Num  -- sum
+check Lam(xs, Fold(Lam(x, Lam(acc, Cons(x, acc))), Nil, xs)) : Arrow<List<a>, List<a>>  -- copy
 
 -- Expected failures:
-infer Cons(True, Cons(LitInt, Nil))                               -- ✗ mixed element types
-infer Fold(Add, True, Cons(LitInt, Nil))                          -- ✗ the start value must be Num
-infer Head(LitInt)                                                -- ✗ not a list
+fails Cons(True, Cons(LitInt, Nil))  -- mixed element types
+fails Fold(Add, True, Cons(LitInt, Nil))  -- the start value must be Num
+fails Head(LitInt)  -- not a list

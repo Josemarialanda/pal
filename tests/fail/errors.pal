@@ -1,0 +1,33 @@
+-- Type errors: every independent error is reported, with where it is and
+-- which premises were being checked; unmet expectations fail the file.
+
+type Bool
+type Num
+type Arrow<a, b>
+
+expr True : Bool
+expr N    : Num
+expr Not  : Arrow<Bool, Bool>
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Two:
+  x : Num
+  y : Num
+->
+  Two(x, y) : Num
+
+infer Two(True, Nope)                 -- two independent errors
+infer Lam(y, App(Not, N))             -- an error deep inside, with context
+check Lam(x, x) : Arrow<Bool, Bool>   -- unmet: the inferred type is more general
+check App(Not, True) : Boolean        -- unmet: undeclared type in the annotation
+fails App(Not, True)                  -- unmet: it typechecks

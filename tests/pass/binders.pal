@@ -1,0 +1,68 @@
+-- Hypotheses, shadowing, let-polymorphism and conclusion patterns.
+
+type Bool
+type Num
+type Arrow<a, b>
+type Pair<a, b>
+
+expr True : Bool
+expr Zero : Num
+expr Not  : Arrow<Bool, Bool>
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Pair<a, b>
+
+rule Let:
+  value : a
+  x : gen a |- body : b
+->
+  Let(x, value, body) : b
+
+rule MonoLet:
+  value : a
+  x : a |- body : b
+->
+  MonoLet(x, value, body) : b
+
+-- A nested conclusion pattern.
+rule Swap:
+  x : a
+  y : b
+->
+  Swap(Pair(x, y)) : Pair<b, a>
+
+-- A repeated pattern variable: both arguments must be the same expression.
+rule Same:
+  x : a
+->
+  Same(x, x) : Bool
+
+-- Variables in scope; the inner binder shadows the outer one.
+check Lam(x, Lam(x, x)) : Arrow<a, Arrow<b, b>>
+fails Lam(x, y)
+
+-- Let-polymorphism with `gen`; lambda- and MonoLet-bound variables stay monomorphic.
+check Let(id, Lam(x, x), Pair(App(id, True), App(id, Zero))) : Pair<Bool, Num>
+fails MonoLet(id, Lam(x, x), Pair(App(id, True), App(id, Zero)))
+fails Lam(f, Pair(App(f, True), App(f, Zero)))
+fails Lam(y, Let(z, y, Pair(App(Not, z), App(Not, Pair(z, z)))))
+
+-- Conclusion patterns.
+check Swap(Pair(True, Zero)) : Pair<Num, Bool>
+fails Swap(True)
+check Same(True, True) : Bool
+fails Same(True, Zero)

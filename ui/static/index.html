@@ -98,6 +98,32 @@
   .rule .bar { grid-column: 1; border-top: 1.5px solid var(--text); }
   .rule .name { grid-column: 2; grid-row: 2; color: var(--rule); font-style: italic; font-family: var(--sans); font-size: 13px; }
   .rule .conclusion { grid-column: 1; text-align: center; padding: 3px 10px 0; }
+  .rule .premises > .rule { margin: 0; }     /* nested rules in a derivation */
+  .rule .leaf { align-self: end; }
+
+  /* Faulty subterms, underlined in the editor; lines with problems in the gutter */
+  .bad-term { text-decoration: underline wavy var(--err); text-decoration-skip-ink: none; text-underline-offset: 3px; }
+  .gutter .warn { color: var(--err); }
+
+  /* Error details and expectations */
+  .errors { margin-top: 4px; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+  .error { cursor: pointer; }
+  .error:hover .err-text { text-decoration: underline; }
+  .err-text { color: var(--err); font-family: var(--sans); font-size: 13px; }
+  .err-text .tycon, .err-text .tyvar, .err-text .con, .err-text .var { font-family: var(--mono); }
+  .context { color: var(--muted); font-size: 12.5px; }
+  .context .rname { color: var(--rule); font-style: italic; font-family: var(--sans); }
+  .aside { color: var(--muted); font-family: var(--sans); font-size: 13px; margin-left: 8px; }
+  .item.rejected { border-left: 3px solid var(--err); background: var(--err-bg); color: var(--text); }
+  .item.rejected .tag { color: var(--err); border-color: var(--err); }
+
+  /* Derivation disclosure */
+  details.derivation { margin-top: 6px; padding-left: 22px; }
+  details.derivation summary { cursor: pointer; color: var(--muted); font: 12.5px var(--sans); user-select: none; }
+  details.derivation summary:hover { color: var(--accent); }
+  details.derivation .tree { overflow-x: auto; padding: 6px 0 2px; }
+  .copy-latex { font: 11.5px var(--sans); color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; margin-left: 10px; cursor: pointer; }
+  .copy-latex:hover { color: var(--accent); border-color: var(--accent); }
   .turnstile { color: var(--accent); margin: 0 6px; }
 
   footer { padding: 6px 18px 10px; color: var(--faint); font-size: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -189,13 +215,17 @@ try { applyTheme(localStorage.getItem("pal.theme") || ""); } catch {}
   <p>Define a type system as inference rules, then ask PAL to infer types with it.</p>
 
   <h3>Statements</h3>
-  <pre data-pal>type Bool              -- declare a type name
+  <pre data-pal>type Bool              -- declare a type
+type Arrow&lt;a, b&gt;       -- a type with parameters
 expr True : Bool       -- axiom: a constant and its type
 rule Not:              -- an inference rule
   x : Bool             --   premises, one per line
 ->
   Not(x) : Bool        --   conclusion
-infer Not(True)        -- infer an expression's type</pre>
+infer Not(True)        -- infer an expression's type
+check Not(True) : Bool -- expect a type (type variables may be renamed)
+fails Not(Not)         -- expect a type error</pre>
+  <p>Types must be declared before use, with the right number of arguments. A definition that breaks this, or a rule whose premise uses a variable missing from its conclusion, is rejected.</p>
 
   <h3>Premises</h3>
   <pre data-pal>x : T                  -- x must have type T
@@ -218,12 +248,14 @@ x : gen A |- body : B  -- x is polymorphic in body</pre>
     <tr><td>Unknown expression</td><td>No rule, no <code>expr</code>, and not a bound variable</td></tr>
     <tr><td>Infinite type</td><td>A type would contain itself (<code>a ~ Arrow&lt;a, b&gt;</code>)</td></tr>
     <tr><td>No typing rule matched</td><td>A constant was given arguments</td></tr>
+    <tr><td>undeclared type</td><td>Declare it first with <code>type</code></td></tr>
   </table>
 
   <h3>This page</h3>
   <ul>
     <li>The program is checked from the top on every edit</li>
-    <li>Click a syntax error to jump to it; <code>Tab</code> indents</li>
+    <li>The part of the program at fault is underlined; click an error to jump to it. <code>Tab</code> indents</li>
+    <li>Open <b>derivation</b> under a result to see how PAL proved it, or copy it as LaTeX</li>
     <li><b>definitions</b> shows or hides <code>type</code>, <code>expr</code> and <code>rule</code> results</li>
   </ul>
   <p>New to type systems? <a href="https://github.com/Josemarialanda/pal/blob/main/TUTORIAL.md" target="_blank" rel="noopener">Read the tutorial →</a></p>
@@ -235,7 +267,7 @@ x : gen A |- body : B  -- x is polymorphic in body</pre>
 const WELCOME = `-- Welcome to PAL! Define a type system, then ask for types.
 
 type Bool
-type Arrow
+type Arrow<a, b>
 
 expr True  : Bool
 expr False : Bool
@@ -253,7 +285,7 @@ rule Lam:
   Lam(x, body) : Arrow<a, b>
 
 infer If(True, False, True)
-infer Lam(x, If(x, x, False))
+check Lam(x, If(x, x, False)) : Arrow<Bool, Bool>
 infer If(True, False, Lam(y, y))
 `;
 
@@ -267,37 +299,47 @@ const store = {
 
 let errorLine = null;   // 1-based line of the current parse error
 let errorPos = null;    // {line, column}
+let marks = [];         // [start, end) source ranges at fault (UTF-16 indices), underlined
+let badLines = new Set();  // lines with a problem, marked in the gutter
+let latexById = [];     // LaTeX of each rendered derivation, for "Copy LaTeX"
 
 /* ---------- Highlighting ---------- */
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const span = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
-const KEYWORDS = new Set(["type", "expr", "rule", "infer", "gen"]);
+const KEYWORDS = new Set(["type", "expr", "rule", "infer", "check", "fails", "gen"]);
 
 // Highlight PAL source. Type positions (after ':' up to the end of the judgment)
-// use type colours; everything else uses expression colours.
-function highlightSource(text) {
+// use type colours; everything else uses expression colours. Tokens inside a
+// marked range (see `marks`) are underlined.
+function highlightSource(text, ranges = []) {
+  let lineStart = 0;
   return text.split("\n").map((line, i) => {
     let out = "", inType = false, depth = 0;
     const re = /(--.*$)|([A-Za-z][A-Za-z0-9_]*)|(\|-|⊢|->)|([:,()<>])|(\s+)|(.)/g;
+    const marked = (from, to) => ranges.some(([s, e]) => from < e && to > s);
     let m;
     while ((m = re.exec(line)) !== null) {
       const [tok, comment, ident, arrow, punct] = m;
-      if (comment) out += span("comment", tok);
+      let html;
+      if (comment) html = span("comment", tok);
       else if (ident) {
-        if (KEYWORDS.has(ident) && (ident !== "gen" || inType)) out += span("kw", tok);
-        else if (inType) out += span(/^[a-z]/.test(ident) ? "tyvar" : "tycon", tok);
-        else out += span(/^[a-z]/.test(ident) ? "var" : "con", tok);
-      } else if (arrow) { out += span("kw", tok); inType = false; }
+        if (KEYWORDS.has(ident) && (ident !== "gen" || inType)) html = span("kw", tok);
+        else if (inType) html = span(/^[a-z]/.test(ident) ? "tyvar" : "tycon", tok);
+        else html = span(/^[a-z]/.test(ident) ? "var" : "con", tok);
+      } else if (arrow) { html = span("kw", tok); inType = false; }
       else if (punct) {
-        out += span("punct", tok);
+        html = span("punct", tok);
         if (tok === ":") inType = true;
         else if (tok === "<") depth++;
         else if (tok === ">") depth = Math.max(0, depth - 1);
         else if (tok === "," && depth === 0) inType = false; // next hypothesis
       }
-      else out += esc(tok);
+      else html = esc(tok);
+      const from = lineStart + m.index;
+      out += !comment && marked(from, from + tok.length) ? `<span class="bad-term">${html}</span>` : html;
     }
+    lineStart += line.length + 1;
     return i + 1 === errorLine ? `<span class="errline">${out || " "}</span>` : out;
   }).join("\n") + "\n ";
 }
@@ -327,10 +369,10 @@ function highlightError(msg) {
 
 function refreshEditor() {
   const text = src.value;
-  hl.innerHTML = highlightSource(text);
+  hl.innerHTML = highlightSource(text, marks);
   const n = text.split("\n").length;
   let g = "";
-  for (let i = 1; i <= n; i++) g += (i === errorLine ? `<span class="bad">${i}</span>` : i) + "\n";
+  for (let i = 1; i <= n; i++) g += (i === errorLine ? `<span class="bad">${i}</span>` : badLines.has(i) ? `<span class="warn">${i}</span>` : i) + "\n";
   gutter.innerHTML = g + " ";
   syncScroll();
   showCursor();
@@ -351,6 +393,23 @@ function jumpTo(line, column) {
   src.scrollTop = Math.max(0, (line - 4) * lineHeight);
   syncScroll(); showCursor();
 }
+// Select a range of the program (UTF-16 indices) and scroll it into view.
+function jumpToRange(start, end) {
+  const line = src.value.slice(0, start).split("\n").length;
+  src.focus();
+  src.setSelectionRange(start, end);
+  const lineHeight = parseFloat(getComputedStyle(src).lineHeight);
+  src.scrollTop = Math.max(0, (line - 4) * lineHeight);
+  syncScroll(); showCursor();
+}
+// The server counts offsets in code points; JavaScript strings use UTF-16.
+// They differ only after characters outside the BMP (e.g. emoji in comments).
+function utf16Index(text, codePoints) {
+  let i = 0;
+  for (let n = 0; n < codePoints && i < text.length; n++) i += text.codePointAt(i) > 0xffff ? 2 : 1;
+  return i;
+}
+const lineOf = (text, index) => text.slice(0, index).split("\n").length;
 
 src.addEventListener("input", () => { store.set("source", src.value); refreshEditor(); scheduleRun(); });
 src.addEventListener("scroll", syncScroll);
@@ -393,6 +452,7 @@ function render(data) {
   if (!data.ok) {
     const e = data.error;
     errorLine = e.line; errorPos = { line: e.line, column: e.column };
+    marks = []; badLines = new Set();  // they refer to the last program that parsed
     parseErrorBox.textContent = `Line ${e.line}, column ${e.column}: ${e.message}`;
     parseErrorBox.classList.add("show");
     summary.innerHTML = `<span style="color:var(--err)">syntax error</span>`;
@@ -401,37 +461,112 @@ function render(data) {
   }
   errorLine = null; errorPos = null;
   parseErrorBox.classList.remove("show");
+
+  const text = src.value, items = data.items;
+  for (const it of items) {
+    it.start = utf16Index(text, it.start ?? 0);
+    for (const e of it.errors || []) if (e.start !== undefined) { e.start = utf16Index(text, e.start); e.end = utf16Index(text, e.end); }
+  }
+  // Underline what is at fault; expected failures (`fails`) are not faults.
+  marks = []; badLines = new Set();
+  for (const it of items) {
+    if (!failed(it)) continue;
+    badLines.add(lineOf(text, it.start));
+    if (it.kind !== "fails") for (const e of it.errors || []) if (e.start !== undefined) { marks.push([e.start, e.end]); badLines.add(lineOf(text, e.start)); }
+  }
   refreshEditor();
 
-  const items = data.items;
   if (items.length === 0) {
     results.innerHTML = `<div class="empty">Nothing yet. Define some types and rules, then <code>infer</code> an expression.</div>`;
     summary.textContent = "";
     return;
   }
-  const html = items.map(renderItem).join("");
-  results.innerHTML = html;
-  const infers = items.filter((i) => i.kind === "infer");
-  const good = infers.filter((i) => i.ok).length, bad = infers.length - good;
+  latexById = [];
+  results.innerHTML = items.map(renderItem).join("");
+  const good = items.filter((i) => isResult(i) && i.ok).length;
+  const bad = items.filter(failed).length;
   summary.innerHTML =
     `<span style="color:var(--ok)">${good} ✓</span>` +
     (bad ? ` <span class="sep">·</span><span style="color:var(--err)">${bad} ✗</span>` : "");
 }
 
+const isResult = (item) => item.kind === "infer" || item.kind === "check" || item.kind === "fails";
+const failed = (item) => item.rejected || (isResult(item) && !item.ok);
+
 function renderItem(item) {
   switch (item.kind) {
-    case "type":
-      return `<div class="item def"><span class="tag">type</span>${span("tycon", item.name)}${item.args.map((a) => " " + span("tyvar", a)).join("")}</div>`;
-    case "expr":
-      return `<div class="item def"><span class="tag">expr</span>${ex(item.name)}<span class="sep">:</span>${ty(item.type)}</div>`;
-    case "rule":
-      return `<div class="item def"><span class="tag">rule</span>${renderRule(item.rule)}</div>`;
+    case "type": case "expr": case "rule": {
+      const body =
+        item.kind === "type" ? span("tycon", item.name) + (item.args.length ? span("punct", "<") + item.args.map((a) => span("tyvar", a)).join(span("punct", ", ")) + span("punct", ">") : "")
+        : item.kind === "expr" ? `${ex(item.name)}<span class="sep">:</span>${ty(item.type)}`
+        : renderRule(item.rule);
+      if (!item.rejected) return `<div class="item def"><span class="tag">${item.kind}</span>${body}</div>`;
+      const reasons = item.diagnostics.map((d) => `<div class="err-text">${esc(d.message)}</div>`).join("");
+      return `<div class="item rejected" data-jump="${item.start}" title="Click to jump to the definition"><span class="tag">${item.kind} · rejected</span>${body}<div class="errors">${reasons}</div></div>`;
+    }
     case "infer":
       return item.ok
-        ? `<div class="item ok"><span class="mark">✓</span>${ex(item.expr)}<span class="sep">::</span>${ty(item.type)}</div>`
-        : `<div class="item bad"><span class="mark">✗</span>${ex(item.expr)}<div class="err-msg">${highlightError(item.error)}</div></div>`;
+        ? `<div class="item ok"><span class="mark">✓</span>${ex(item.expr)}<span class="sep">::</span>${ty(item.type)}${derivationHtml(item)}</div>`
+        : `<div class="item bad"><span class="mark">✗</span>${ex(item.expr)}${errorsHtml(item.errors)}</div>`;
+    case "check": {
+      const head = `${span("kw", "check")} ${ex(item.expr)}<span class="sep">:</span>${ty(item.expected)}`;
+      if (item.ok) return `<div class="item ok"><span class="mark">✓</span>${head}${derivationHtml(item)}</div>`;
+      const reason =
+        item.diagnostics && item.diagnostics.length ? `<div class="errors">${item.diagnostics.map((d) => `<div class="err-text">${esc(d.message)}</div>`).join("")}</div>`
+        : item.errors ? errorsHtml(item.errors)
+        : `<div class="errors"><div class="err-text">inferred ${ty(item.type)}</div></div>`;
+      return `<div class="item bad"><span class="mark">✗</span>${head}${reason}</div>`;
+    }
+    case "fails": {
+      const head = `${span("kw", "fails")} ${ex(item.expr)}`;
+      return item.ok
+        ? `<div class="item ok"><span class="mark">✓</span>${head}<span class="aside">${highlightError(item.error)}</span></div>`
+        : `<div class="item bad"><span class="mark">✗</span>${head}<div class="errors"><div class="err-text">but it has type ${ty(item.type)}</div></div></div>`;
+    }
   }
   return "";
+}
+
+// Every error, each with the premises being checked; click one to jump to the
+// part of the program at fault.
+function errorsHtml(errors) {
+  return `<div class="errors">${errors.map((e) => {
+    const context = e.context.map((c) =>
+      `<div class="context">in rule <span class="rname">${esc(c.rule)}</span>, premise ${highlightLine(c.premise)} <span class="punct">(checking </span>${ex(c.subject)}<span class="punct">)</span></div>`).join("");
+    const jump = e.start !== undefined ? ` data-jump="${e.start}" data-end="${e.end}" title="Click to jump to it"` : "";
+    return `<div class="error"${jump}><div class="err-text">${highlightError(e.message)}</div>${context}</div>`;
+  }).join("")}</div>`;
+}
+
+const highlightLine = (text) => highlightSource(text).replace(/\n $/, "");
+
+// A collapsible derivation tree, with its LaTeX one click away.
+function derivationHtml(item) {
+  if (!item.derivation) return "";
+  const id = latexById.push(item.latex) - 1;
+  return `<details class="derivation"><summary>derivation</summary><div class="tree">${renderDerivation(item.derivation)}</div><button class="copy-latex" type="button" data-latex="${id}">Copy LaTeX</button></details>`;
+}
+
+// A derivation as nested inference rules. Assumptions (variables in scope) are
+// leaves without a bar; declarations are axioms (a bar with nothing above).
+function renderDerivation(d) {
+  const hyps = d.assumptions.length
+    ? d.assumptions.map((a) => `${ex(a.var)}<span class="sep">:</span>${scheme(a.type)}`).join(span("punct", ", ")) + `<span class="turnstile">⊢</span>`
+    : "";
+  const j = `${hyps}${ex(d.expr)}<span class="sep">:</span>${ty(d.type)}`;
+  if (d.by === "assumption") return `<span class="leaf">${j}</span>`;
+  const name = d.by === "rule" ? d.rule : "expr";
+  return `<div class="rule">
+      <div class="premises">${d.premises.map(renderDerivation).join("") || "&nbsp;"}</div><div></div>
+      <div class="bar"></div><div class="name">${esc(name)}</div>
+      <div class="conclusion">${j}</div>
+    </div>`;
+}
+
+// A type scheme, e.g. "∀a. Arrow<a, a>".
+function scheme(text) {
+  const m = /^∀(.+?)\. (.*)$/.exec(text);
+  return m ? `∀${m[1].split(" ").map((v) => span("tyvar", v)).join(" ")}. ${ty(m[2])}` : ty(text);
 }
 
 function renderRule(rule) {
@@ -445,6 +580,18 @@ function renderRule(rule) {
       <div class="conclusion">${judgment(rule.conclusion)}</div>
     </div>`;
 }
+
+results.addEventListener("click", (ev) => {
+  const copy = ev.target.closest(".copy-latex");
+  if (copy) {
+    const done = (label) => { copy.textContent = label; setTimeout(() => (copy.textContent = "Copy LaTeX"), 1500); };
+    navigator.clipboard?.writeText(latexById[+copy.dataset.latex]).then(() => done("Copied"), () => done("Copy failed"));
+    return;
+  }
+  if (ev.target.closest("details.derivation")) return;
+  const target = ev.target.closest("[data-jump]");
+  if (target) jumpToRange(+target.dataset.jump, +(target.dataset.end ?? target.dataset.jump));
+});
 
 /* ---------- Settings ---------- */
 

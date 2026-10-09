@@ -62,7 +62,7 @@ maybeEx =
   [palQuasiQuoter|
     type Num
     type Bool
-    type Maybe
+    type Maybe<a>
 
     expr LitInt  : Num
     expr True    : Bool

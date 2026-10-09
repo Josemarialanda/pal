@@ -4,9 +4,9 @@
 type Unit
 type Bool
 type Nat
-type Arrow
-type Prod
-type Sum
+type Arrow<a, b>
+type Prod<a, b>
+type Sum<a, b>
 
 expr Tt    : Unit
 expr True  : Bool
@@ -67,13 +67,13 @@ rule Fix:
 ->
   Fix(f) : a
 
-infer Lam(p, Pair(Snd(p), Fst(p)))                       -- swap: Arrow<Prod<a, b>, Prod<b, a>>
-infer Case(Inl(Zero), n, App(Succ, n), b, Zero)          -- Nat
-infer Lam(s, Case(s, x, Inr(x), y, Inl(y)))              -- Arrow<Sum<a, b>, Sum<b, a>>
-infer Lam(u, Pair(u, Tt))                                -- Arrow<a, Prod<a, Unit>>
-infer Fix(Lam(f, Lam(n, App(f, n))))                     -- Arrow<a, b>: a looping function
+check Lam(p, Pair(Snd(p), Fst(p))) : Arrow<Prod<a, b>, Prod<b, a>>  -- swap
+check Case(Inl(Zero), n, App(Succ, n), b, Zero) : Nat
+check Lam(s, Case(s, x, Inr(x), y, Inl(y))) : Arrow<Sum<a, b>, Sum<b, a>>
+check Lam(u, Pair(u, Tt)) : Arrow<a, Prod<a, Unit>>
+check Fix(Lam(f, Lam(n, App(f, n)))) : Arrow<a, b>  -- a looping function
 
 -- Expected failures:
-infer Case(Inl(Zero), n, App(Succ, n), b, True)          -- ✗ the branches differ
-infer Fst(Inl(Zero))                                     -- ✗ a sum is not a product
-infer Fix(Zero)                                          -- ✗ Fix needs a function
+fails Case(Inl(Zero), n, App(Succ, n), b, True)  -- the branches differ
+fails Fst(Inl(Zero))  -- a sum is not a product
+fails Fix(Zero)  -- Fix needs a function

@@ -1,0 +1,20 @@
+-- Malformed definitions are rejected, with a reason.
+
+type Bool
+type Arrow<a, b>
+type Pair<a, a>                -- a parameter listed twice
+
+expr True : Bool
+expr Not  : Arrow<Bol, Bool>   -- a typo: did you mean Bool?
+expr Id   : Arrow<Bool>        -- too few type arguments
+expr X    : Thing              -- never declared
+
+-- A premise variable that the conclusion does not bind.
+rule Weird:
+  z : Bool
+->
+  W(x) : Bool
+
+-- Rules that were rejected are not there to use.
+fails W(True)
+fails Not

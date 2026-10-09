@@ -1,0 +1,13 @@
+✗ type Pair rejected: type Pair lists the parameter a more than once
+    at tests/fail/definitions.pal:5:1
+✗ expr Not rejected: undeclared type Bol (did you mean Bool?)
+    at tests/fail/definitions.pal:8:1
+✗ expr Id rejected: Arrow takes 2 type arguments, but is given 1
+    at tests/fail/definitions.pal:9:1
+✗ expr X rejected: undeclared type Thing (declare it first: type Thing)
+    at tests/fail/definitions.pal:10:1
+✗ rule Weird rejected: premise variable z does not appear in the conclusion W(x)
+    at tests/fail/definitions.pal:13:1
+✓ fails W(True)  (Unknown expression → W)
+✓ fails Not  (Unknown expression → Not)
+2 checks passed

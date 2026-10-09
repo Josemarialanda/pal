@@ -1,15 +1,16 @@
 -- Propositional logic via the Curry–Howard correspondence:
 -- types are propositions, terms are proofs. `infer p` returns the
--- proposition that the proof term p proves.
+-- proposition that the proof term p proves, and `check p : P` checks that
+-- p is a proof of P.
 --
 --   Implies<A, B>   A → B      Lam / App      (→ intro / elim)
 --   And<A, B>       A ∧ B      Pair / Fst / Snd
 --   Or<A, B>        A ∨ B      Inl / Inr / Case
 --   False           ⊥          Absurd         (ex falso quodlibet)
 
-type Implies
-type And
-type Or
+type Implies<a, b>
+type And<a, b>
+type Or<a, b>
 type False
 
 rule Lam:
@@ -62,22 +63,22 @@ rule Absurd:
   Absurd(p) : a
 
 -- A → A
-infer Lam(x, x)
+check Lam(x, x) : Implies<a, a>
 -- A ∧ B → B ∧ A
-infer Lam(p, Pair(Snd(p), Fst(p)))
+check Lam(p, Pair(Snd(p), Fst(p))) : Implies<And<a, b>, And<b, a>>
 -- A ∨ B → B ∨ A
-infer Lam(s, Case(s, x, Inr(x), y, Inl(y)))
+check Lam(s, Case(s, x, Inr(x), y, Inl(y))) : Implies<Or<a, b>, Or<b, a>>
 -- (A → B) → (B → C) → (A → C)
-infer Lam(f, Lam(g, Lam(x, App(g, App(f, x)))))
+check Lam(f, Lam(g, Lam(x, App(g, App(f, x))))) : Implies<Implies<a, b>, Implies<Implies<b, c>, Implies<a, c>>>
 -- (A ∧ B → C) → (A → B → C)          currying
-infer Lam(f, Lam(a, Lam(b, App(f, Pair(a, b)))))
+check Lam(f, Lam(a, Lam(b, App(f, Pair(a, b))))) : Implies<Implies<And<a, b>, c>, Implies<a, Implies<b, c>>>
 -- A ∧ (B ∨ C) → (A ∧ B) ∨ (A ∧ C)    distributivity
-infer Lam(p, Case(Snd(p), b, Inl(Pair(Fst(p), b)), c, Inr(Pair(Fst(p), c))))
+check Lam(p, Case(Snd(p), b, Inl(Pair(Fst(p), b)), c, Inr(Pair(Fst(p), c)))) : Implies<And<a, Or<b, c>>, Or<And<a, b>, And<a, c>>>
 -- ⊥ → A
-infer Lam(f, Absurd(f))
+check Lam(f, Absurd(f)) : Implies<False, a>
 
 -- (A → B ∧ C) → (A → B)              unification works out x's proposition
-infer Lam(x, Lam(y, Fst(App(x, y))))
+check Lam(x, Lam(y, Fst(App(x, y)))) : Implies<Implies<a, And<b, c>>, Implies<a, b>>
 
 -- Expected failure: self-application proves no finite proposition.
-infer Lam(p, App(p, p))                -- ✗ infinite type
+fails Lam(p, App(p, p))  -- infinite type
