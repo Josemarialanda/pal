@@ -96,6 +96,7 @@ from anywhere. To run files without a REPL, or to pass other options, call
 cabal run -v0 pal -- FILE.pal        # run a file
 cabal run -v0 pal                    # start the interactive REPL
 cabal run -v0 pal -- -i FILE.pal     # run a file, then open a REPL with its context
+cabal run -v0 pal -- --no-color …    # same, without colours
 ```
 
 Use `cabal install exe:pal` to put `pal` on your `PATH`. The rest of this
@@ -121,25 +122,44 @@ $ pal examples/programs/stlc.pal
 
 ```text
 $ pal
-PAL REPL — type :help for commands, :quit to exit.
-pal> type Bool
+╭──────────────────────────────────────────────────╮
+│ λ PAL  ·  a typechecker sandbox                  │
+│   :help for commands  ·  :quit or Ctrl-D to exit │
+╰──────────────────────────────────────────────────╯
+pal❯ type Bool
 defined type Bool
-pal> expr True : Bool
+pal❯ expr True : Bool
 defined expr True : Bool
-pal> rule Not:
-...>   x : Bool
-...> ->
-...>   Not(x) : Bool
+pal❯ rule Not:
+   ┆   x : Bool
+   ┆ ->
+   ┆   Not(x) : Bool
 defined rule Not
-pal> Not(Not(True))
+       x : Bool
+    ─────────────── Not
+     Not(x) : Bool
+pal❯ Not(Not(True))
 ✓ Not(Not(True)) :: Bool
-pal> :quit
+pal❯ Not(Zero)
+✗ Not(Zero)
+  ╰─ unknown expression Zero
+pal❯ :quit
 ```
 
+* **Colours and highlighting.** In a terminal, output is syntax-highlighted
+  with ANSI colours and text styles: keywords in bold blue, type constructors
+  in cyan, type variables in italic magenta, constructors in bold, variables
+  in italic, punctuation dimmed, `✓` in green and `✗` in red. Each rule you
+  define is drawn as an **inference rule**, with its premises above a bar and
+  its conclusion below. Errors get their own line. Colours are turned off
+  when output isn't a terminal, when the
+  [`NO_COLOR`](https://no-color.org) environment variable is set, when
+  `TERM=dumb`, or with `pal --no-color`. Output is then the plain one-line
+  format shown elsewhere in this README.
 * The context persists for the whole session. Every statement builds on the
   ones before it.
 * **Multi-line input:** if the input isn't finished yet (a rule without its
-  conclusion, an unclosed `(`), the prompt changes to `...>` and the input
+  conclusion, an unclosed `(`), the prompt changes to `┆` and the input
   continues on the next line. A blank line ends it early and shows the
   syntax error.
 * **A bare expression** such as `Not(True)` is shorthand for `infer Not(True)`.
@@ -161,7 +181,7 @@ pal> :quit
   | Command          | Effect                                     |
   | ---------------- | ------------------------------------------ |
   | `:load FILE...`  | Run `.pal` files in the current context    |
-  | `:ctx`           | Show the current context                   |
+  | `:ctx`           | Show the context, rules drawn as inference rules |
   | `:reset`         | Clear the context                          |
   | `:help`          | List the commands                          |
   | `:quit` / Ctrl-D | Exit                                       |

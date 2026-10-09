@@ -52,7 +52,7 @@ language: Haskell2010
 library:
   source-dirs: src
   exposed-modules:
-    [PAL, Types, Program, Repl, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
+    [PAL, Types, Program, Pretty, Repl, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
   other-modules:
     [Interpreters.Common.Actions, Utils.OneOfN]
   dependencies:

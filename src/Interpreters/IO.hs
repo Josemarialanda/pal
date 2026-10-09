@@ -37,7 +37,8 @@ import qualified Interpreters.Common.Actions as Actions
 import Polysemy (Embed, Members, Sem, embed, interpret, runM)
 import Polysemy.State (State, get, runState)
 import Program (PalAction, runPalAction)
-import Types (Ctx, Err, Expr, PAL (..), Type, typingRule'name)
+import Pretty (Style, plain, prettyDefinedExpr, prettyDefinedRule, prettyDefinedType, prettyResult)
+import Types (Ctx, Err, Expr, PAL (..), Type)
 
 --------------------------------------------------------------------------------
 
@@ -45,16 +46,19 @@ import Types (Ctx, Err, Expr, PAL (..), Type, typingRule'name)
 
 --------------------------------------------------------------------------------
 
--- | What the IO interpreter prints.
-newtype IOOptions = IOOptions
+-- | What the IO interpreter prints, and how.
+data IOOptions = IOOptions
   { -- | Also print a line for every definition (@defined type Num@, …),
     --   not just inference results. The REPL turns this on.
-    ioEchoDefinitions :: Bool
+    ioEchoDefinitions :: Bool,
+    -- | Colors and text attributes (see "Pretty"). With 'plain', output is
+    --   the one-line format shown in the documentation.
+    ioStyle :: Style
   }
 
--- | Print inference results only.
+-- | Print inference results only, without colors.
 defaultIOOptions :: IOOptions
-defaultIOOptions = IOOptions {ioEchoDefinitions = False}
+defaultIOOptions = IOOptions {ioEchoDefinitions = False, ioStyle = plain}
 
 --------------------------------------------------------------------------------
 
@@ -96,7 +100,7 @@ runActionsIO opts ctx actions =
 -- | Interpret the 'PAL' effect, printing to stdout.
 --
 --   Definitions update the context (and are echoed if 'ioEchoDefinitions' is
---   set); each 'Infer' prints its result using 'formatResult'.
+--   set); each 'Infer' prints its result, styled with 'ioStyle'.
 interpreter ::
   (Members '[State Ctx, Embed IO] r) =>
   IOOptions ->
@@ -105,23 +109,22 @@ interpreter ::
 interpreter opts = interpret $ \case
   DefineType td -> do
     Actions.defineType td
-    echo ("defined " <> show td)
+    echo (prettyDefinedType st td)
   DefineExpr ed -> do
     Actions.defineExpr ed
-    echo ("defined expr " <> show ed)
+    echo (prettyDefinedExpr st ed)
   DefineRule tr -> do
     Actions.defineRule tr
-    echo ("defined rule " <> typingRule'name tr)
+    echo (prettyDefinedRule st tr)
   Infer e -> do
     r <- Actions.infer e <$> get
-    embed (putStrLn (formatResult e r))
+    embed (putStrLn (prettyResult st e r))
     pure r
   where
+    st = ioStyle opts
     echo :: (Members '[Embed IO] r') => String -> Sem r' ()
     echo msg = when (ioEchoDefinitions opts) (embed (putStrLn msg))
 
--- | Format an inference result as a single line.
+-- | Format an inference result as a single plain line.
 formatResult :: Expr -> Either Err Type -> String
-formatResult e = \case
-  Right t -> "✓ " <> show e <> " :: " <> show t
-  Left err -> "✗ " <> show e <> " -> " <> show err
+formatResult = prettyResult plain

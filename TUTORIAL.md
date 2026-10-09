@@ -997,29 +997,41 @@ context so far and returns the updated one.
 ### 11.2 Building `dsl/logic` live
 
 Start the REPL with `./pal-repl.sh`, then rebuild Part 3's language one
-piece at a time:
+piece at a time. (The transcripts below are real sessions with the colours
+removed. In your terminal, keywords, types, constructors and variables are
+each highlighted differently.)
 
 ```text
-pal> type Bool
+╭──────────────────────────────────────────────────╮
+│ λ PAL  ·  a typechecker sandbox                  │
+│   :help for commands  ·  :quit or Ctrl-D to exit │
+╰──────────────────────────────────────────────────╯
+pal❯ type Bool
 defined type Bool
-pal> expr True : Bool
+pal❯ expr True : Bool
 defined expr True : Bool
-pal> expr False : Bool
+pal❯ expr False : Bool
 defined expr False : Bool
-pal> rule Not:
-...>   x : Bool
-...> ->
-...>   Not(x) : Bool
+pal❯ rule Not:
+   ┆   x : Bool
+   ┆ ->
+   ┆   Not(x) : Bool
 defined rule Not
-pal> Not(Not(True))
+       x : Bool
+    ─────────────── Not
+     Not(x) : Bool
+pal❯ Not(Not(True))
 ✓ Not(Not(True)) :: Bool
 ```
 
-Three things to notice:
+Four things to notice:
 
 - **Multi-line input.** After `rule Not:` the input isn't finished, so the
-  prompt changes to `...>` and the input continues on the next line. The rule
+  prompt changes to `┆` and the input continues on the next line. The rule
   runs as soon as its conclusion is complete.
+- **Rules are drawn as inference rules.** The REPL echoes each rule the way
+  Part 1 writes them on paper: premises above the bar, conclusion below,
+  name on the right. It's a quick check that PAL read the rule you meant.
 - **Bare expressions.** `Not(Not(True))` is shorthand for
   `infer Not(Not(True))`.
 - **Definitions are echoed** (`defined rule Not`), so every input gets a
@@ -1033,15 +1045,19 @@ for multi-line rules), and **Ctrl-R** searches them. History is kept in
 Now try `And` before it exists, then define it:
 
 ```text
-pal> And(True, False)
-✗ And(True, False) -> [Error] Unknown expression → And
-pal> rule And:
-...>   x : Bool
-...>   y : Bool
-...> ->
-...>   And(x, y) : Bool
+pal❯ And(True, False)
+✗ And(True, False)
+  ╰─ unknown expression And
+pal❯ rule And:
+   ┆   x : Bool
+   ┆   y : Bool
+   ┆ ->
+   ┆   And(x, y) : Bool
 defined rule And
-pal> And(True, Not(False))
+     x : Bool     y : Bool
+    ─────────────────────── And
+       And(x, y) : Bool
+pal❯ And(True, Not(False))
 ✓ And(True, Not(False)) :: Bool
 ```
 
@@ -1052,11 +1068,11 @@ A syntax error is reported as soon as more input can't fix it. Here the
 conclusion is missing its `:`:
 
 ```text
-pal> rule Or:
-...>   x : Bool
-...>   y : Bool
-...> ->
-...>   Or(x, y) Bool
+pal❯ rule Or:
+   ┆   x : Bool
+   ┆   y : Bool
+   ┆ ->
+   ┆   Or(x, y) Bool
 <input>:5:12:
   |
 5 |   Or(x, y) Bool
@@ -1066,24 +1082,30 @@ expecting ':'
 ```
 
 The faulty input is discarded and the context is unchanged. `Not` and `And`
-are still there, which `:ctx` confirms:
+are still there, which `:ctx` confirms. It lists everything in definition
+order, with each rule drawn as an inference rule:
 
 ```text
-pal> :ctx
-=== Context ===
-Types:
-  - type Bool
+pal❯ :ctx
+Types
+  Bool
 
-Expressions:
-  - False : Bool
-  - True : Bool
+Expressions
+  True : Bool
+  False : Bool
 
-Rules:
-  - And:
-    …
-  - Not:
-    …
+Rules
+     x : Bool
+  ─────────────── Not
+   Not(x) : Bool
+
+   x : Bool     y : Bool
+  ─────────────────────── And
+     And(x, y) : Bool
 ```
+
+Piped input and `--no-color` give plain, uncoloured output. In that mode
+`:ctx` prints the raw context, in the same format as the Debug trace.
 
 ### 11.3 How the REPL decides an input is finished
 
@@ -1099,7 +1121,7 @@ flowchart TD
     parse -- "error" --> expr{"parse it as one<br/>bare expression?"}
     expr -- ok --> inf["run it as an infer"]
     expr -- "error" --> where{"did the parser run<br/>off the end of the input?"}
-    where -- "yes: e.g. rule without conclusion,<br/>unclosed '('" --> more["Incomplete:<br/>prompt ...> and wait"]
+    where -- "yes: e.g. rule without conclusion,<br/>unclosed '('" --> more["Incomplete:<br/>prompt ┆ and wait"]
     where -- "no: e.g. 'Or(x, y) Bool'" --> err["Invalid:<br/>show error, discard input"]
 ```
 
@@ -1107,7 +1129,7 @@ An error **at the end of the input** means more text could still fix it.
 An error **earlier** can't be fixed by typing more. To give up on an
 unfinished input, enter a blank line: the REPL reports the error and
 discards the input. Or press **Ctrl-C**, which discards it silently and
-returns to `pal>` with the context unchanged. Input starting with a keyword (`type`, `expr`, `rule`,
+returns to `pal❯` with the context unchanged. Input starting with a keyword (`type`, `expr`, `rule`,
 `infer`) is never read as a bare expression, so `type` on its own waits for
 a name instead of trying to infer a variable called `type`.
 
@@ -1121,19 +1143,23 @@ the STLC rules:
 ```text
 $ ./pal-repl.sh examples/programs/stlc.pal
 ✓ App(Not, True) :: Bool
-…                                      (the file's own results)
-pal> Lam(f, App(f, True))
+…                                      (the file's own results, then the banner)
+pal❯ Lam(f, App(f, True))
 ✓ Lam(f, App(f, True)) :: Arrow<Arrow<Bool, a>, a>
-pal> rule Pair:
-...>   x : a
-...>   y : b
-...> ->
-...>   Pair(x, y) : Pair<a, b>
+pal❯ rule Pair:
+   ┆   x : a
+   ┆   y : b
+   ┆ ->
+   ┆   Pair(x, y) : Pair<a, b>
 defined rule Pair
-pal> Let(id, Lam(x, x), App(id, True))
+         x : a     y : b
+    ───────────────────────── Pair
+     Pair(x, y) : Pair<a, b>
+pal❯ Let(id, Lam(x, x), App(id, True))
 ✓ Let(id, Lam(x, x), App(id, True)) :: Bool
-pal> Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))
-✗ Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt))) -> [Error] Type mismatch: expected Bool, got Num
+pal❯ Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))
+✗ Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))
+  ╰─ type mismatch: expected Bool, got Num
 ```
 
 Inside a session, `:load FILE` does the same thing: it runs the file in the
@@ -1159,6 +1185,16 @@ $ cabal run -v0 pal -- examples/programs/stlc.pal
 ✓ Lam(x, x) :: Arrow<a, a>
 …
 ✗ Lam(x, y) -> [Error] Unknown expression → y
+```
+
+This is the **plain** format, which you get when output goes to a pipe or
+file (for example `pal FILE | grep ✗`), with `--no-color`, or with `NO_COLOR` set.
+In a terminal the same results are coloured, and each error moves to its own
+line under the expression:
+
+```text
+✗ Lam(x, y)
+  ╰─ unknown expression y
 ```
 
 Several files run **in order in one context**, like one long file. This lets
@@ -1367,6 +1403,7 @@ pal FILE...            run files in order in one context (exit 1 if any infer fa
 pal                    REPL: statements, bare expressions, :load :ctx :reset :help :quit
                        (←/→ edit, ↑/↓ history, Ctrl-R search, Ctrl-C discard input)
 pal -i FILE...         run files, then a REPL with their context
+pal --no-color …       plain output (also when piped, or with NO_COLOR set)
 ./pal-repl.sh [FILE...] build pal and start the REPL (loading FILEs first, like -i)
 ```
 

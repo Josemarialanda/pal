@@ -23,6 +23,7 @@ library
       PAL
       Types
       Program
+      Pretty
       Repl
       Interpreters.Core
       Interpreters.Debug
