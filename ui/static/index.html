@@ -100,7 +100,24 @@
   .rule .conclusion { grid-column: 1; text-align: center; padding: 3px 10px 0; }
   .turnstile { color: var(--accent); margin: 0 6px; }
 
-  footer { padding: 6px 18px 10px; color: var(--faint); font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+  footer { padding: 6px 18px 10px; color: var(--faint); font-size: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  footer .help-btn { margin-left: auto; font: 12px var(--sans); color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+  footer .help-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  /* Cheat sheet (a popover: Esc or a click outside closes it) */
+  .help { position: fixed; inset: auto 16px 44px auto; margin: 0; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 80px); overflow: auto; padding: 14px 18px 16px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow), 0 12px 40px rgba(0, 0, 0, .18); font-size: 13px; }
+  .help h2 { margin: 0 0 6px; font: 600 15px var(--sans); display: flex; align-items: center; justify-content: space-between; }
+  .help h3 { margin: 14px 0 6px; color: var(--muted); font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .08em; }
+  .help p, .help ul { margin: 4px 0; }
+  .help ul { padding-left: 18px; }
+  .help pre { margin: 4px 0; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; font: 12.5px/1.55 var(--mono); overflow-x: auto; }
+  .help code { font: 12.5px var(--mono); }
+  .help table { border-collapse: collapse; width: 100%; }
+  .help td { padding: 3px 0; vertical-align: top; }
+  .help td:first-child { padding-right: 12px; white-space: nowrap; font-family: var(--mono); color: var(--err); }
+  .help .close { font: 18px/1 var(--sans); color: var(--muted); background: none; border: 0; cursor: pointer; padding: 2px 4px; }
+  .help .close:hover { color: var(--text); }
+  .help a { color: var(--accent); }
 </style>
 <script>
 "use strict";
@@ -164,8 +181,53 @@ try { applyTheme(localStorage.getItem("pal.theme") || ""); } catch {}
 <footer>
   <span>Checks as you type</span>
   <span>Your program is saved in this browser</span>
-  <span>Lowercase type names are type variables · <code>x : a |- e : b</code> binds <code>x</code> · <code>gen</code> generalises</span>
+  <button class="help-btn" type="button" popovertarget="help">? Help</button>
 </footer>
+
+<div class="help" id="help" popover>
+  <h2>PAL cheat sheet <button class="close" type="button" popovertarget="help" popovertargetaction="hide" aria-label="Close">×</button></h2>
+  <p>Define a type system as inference rules, then ask PAL to infer types with it.</p>
+
+  <h3>Statements</h3>
+  <pre data-pal>type Bool              -- declare a type name
+expr True : Bool       -- axiom: a constant and its type
+rule Not:              -- an inference rule
+  x : Bool             --   premises, one per line
+->
+  Not(x) : Bool        --   conclusion
+infer Not(True)        -- infer an expression's type</pre>
+
+  <h3>Premises</h3>
+  <pre data-pal>x : T                  -- x must have type T
+x : A |- body : B      -- check body with x : A in scope
+x : A, y : B |- e : C  -- several hypotheses
+x : gen A |- body : B  -- x is polymorphic in body</pre>
+  <p><code>⊢</code> works in place of <code>|-</code>.</p>
+
+  <h3>Naming</h3>
+  <ul>
+    <li><b>Uppercase</b>: constructors and concrete types, e.g. <code>Add(x, y)</code>, <code>Maybe&lt;Num&gt;</code></li>
+    <li><b>lowercase</b>: variables and type variables, e.g. <code>x</code>, <code>a</code></li>
+    <li>Comments start with <code>--</code></li>
+  </ul>
+
+  <h3>Errors</h3>
+  <table>
+    <tr><td>Type mismatch</td><td>Two different types had to be equal</td></tr>
+    <tr><td>Arity mismatch</td><td>A rule exists, but for a different number of arguments</td></tr>
+    <tr><td>Unknown expression</td><td>No rule, no <code>expr</code>, and not a bound variable</td></tr>
+    <tr><td>Infinite type</td><td>A type would contain itself (<code>a ~ Arrow&lt;a, b&gt;</code>)</td></tr>
+    <tr><td>No typing rule matched</td><td>A constant was given arguments</td></tr>
+  </table>
+
+  <h3>This page</h3>
+  <ul>
+    <li>The program is checked from the top on every edit</li>
+    <li>Click a syntax error to jump to it; <code>Tab</code> indents</li>
+    <li><b>definitions</b> shows or hides <code>type</code>, <code>expr</code> and <code>rule</code> results</li>
+  </ul>
+  <p>New to type systems? <a href="https://github.com/Josemarialanda/pal/blob/main/TUTORIAL.md" target="_blank" rel="noopener">Read the tutorial →</a></p>
+</div>
 
 <script>
 "use strict";
@@ -407,6 +469,9 @@ themeSelect.addEventListener("change", () => {
   applyTheme(themeSelect.value);
   store.set("theme", themeSelect.value);
 });
+
+// Highlight the cheat sheet's examples like the editor.
+for (const pre of document.querySelectorAll("pre[data-pal]")) pre.innerHTML = highlightSource(pre.textContent).replace(/\n $/, "");
 
 src.value = store.get("source", WELCOME);
 refreshEditor();
