@@ -1,0 +1,83 @@
+-- Propositional logic via the Curry–Howard correspondence:
+-- types are propositions, terms are proofs. `infer p` returns the
+-- proposition that the proof term p proves.
+--
+--   Implies<A, B>   A → B      Lam / App      (→ intro / elim)
+--   And<A, B>       A ∧ B      Pair / Fst / Snd
+--   Or<A, B>        A ∨ B      Inl / Inr / Case
+--   False           ⊥          Absurd         (ex falso quodlibet)
+
+type Implies
+type And
+type Or
+type False
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Implies<a, b>
+
+rule App:
+  f : Implies<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : And<a, b>
+
+rule Fst:
+  p : And<a, b>
+->
+  Fst(p) : a
+
+rule Snd:
+  p : And<a, b>
+->
+  Snd(p) : b
+
+rule Inl:
+  x : a
+->
+  Inl(x) : Or<a, b>
+
+rule Inr:
+  x : b
+->
+  Inr(x) : Or<a, b>
+
+rule Case:
+  s : Or<a, b>
+  x : a |- left : c
+  y : b |- right : c
+->
+  Case(s, x, left, y, right) : c
+
+rule Absurd:
+  p : False
+->
+  Absurd(p) : a
+
+-- A → A
+infer Lam(x, x)
+-- A ∧ B → B ∧ A
+infer Lam(p, Pair(Snd(p), Fst(p)))
+-- A ∨ B → B ∨ A
+infer Lam(s, Case(s, x, Inr(x), y, Inl(y)))
+-- (A → B) → (B → C) → (A → C)
+infer Lam(f, Lam(g, Lam(x, App(g, App(f, x)))))
+-- (A ∧ B → C) → (A → B → C)          currying
+infer Lam(f, Lam(a, Lam(b, App(f, Pair(a, b)))))
+-- A ∧ (B ∨ C) → (A ∧ B) ∨ (A ∧ C)    distributivity
+infer Lam(p, Case(Snd(p), b, Inl(Pair(Fst(p), b)), c, Inr(Pair(Fst(p), c))))
+-- ⊥ → A
+infer Lam(f, Absurd(f))
+
+-- (A → B ∧ C) → (A → B)              unification works out x's proposition
+infer Lam(x, Lam(y, Fst(App(x, y))))
+
+-- Expected failure: self-application proves no finite proposition.
+infer Lam(p, App(p, p))                -- ✗ infinite type

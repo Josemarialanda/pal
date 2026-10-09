@@ -399,12 +399,40 @@ ones. Bound variables live in `ctx'env` only while their premise is checked,
 so the `Env` shown in Debug traces stays empty.
 
 In Haskell, a rule's premises are `Premise` values. `premise e t` builds a
-plain judgment, and `Premise [(EVar "x", TVar "a")] (EVar "body", TVar "b")`
+plain judgment, and `Premise [hyp (EVar "x") (TVar "a")] (EVar "body", TVar "b")`
 builds one with a hypothesis.
 
 `mainStlc` in `src/PAL.hs` runs a small STLC fragment built this way.
-Type inference is Hindley–Milner-style unification, but without
-let-polymorphism: a variable bound by a hypothesis has one monomorphic type.
+
+### 6. Let-Polymorphism (`gen`)
+
+By default, a variable bound by a hypothesis has **one monomorphic type**.
+That's what a lambda's parameter needs. Mark a hypothesis with `gen` to
+**generalise** it instead: the variable gets its type quantified over every
+type variable not free in the surrounding context, and each use instantiates
+it afresh. This is full Hindley–Milner `let`:
+
+```haskell
+[palQuasiQuoter|
+  rule Let:
+    value : a
+    x : gen a |- body : b
+  ->
+    Let(x, value, body) : b
+
+  -- (with Lam, App and Pair rules as above)
+  infer Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))  -- Pair<Bool, Num>
+|]
+```
+
+* The premise that fixes `a` (`value : a`) must come before the `gen`
+  hypothesis, because premises are checked in order.
+* Only type variables **not free in the context** are generalised. In
+  `Lam(y, Let(z, y, …))`, `z` has `y`'s type, so it stays monomorphic.
+* In Haskell, use `genHyp (EVar "x") (TVar "a")` in place of `hyp`.
+
+[`examples/programs/hm.pal`](examples/programs/hm.pal) compares `Let` with a
+monomorphic `MonoLet` side by side.
 
 ---
 
@@ -419,6 +447,18 @@ each way of writing a PAL program:
 | `data` | Lists of `PalAction` values (incl. generated) | [`Examples/AsData.hs`](examples/Examples/AsData.hs)           |
 | `dsl`  | PAL syntax via `palQuasiQuoter`               | [`Examples/AsDSL.hs`](examples/Examples/AsDSL.hs)             |
 | `file` | `.pal` files parsed at runtime                | [`programs/`](examples/programs/), loaded by `Examples/AsFile.hs` |
+
+The `.pal` files double as a small catalogue of type systems:
+
+| File | Type system |
+| ---- | ----------- |
+| [`arith.pal`](examples/programs/arith.pal) | Typed arithmetic (TAPL ch. 8): booleans, naturals, `If` |
+| [`stlc.pal`](examples/programs/stlc.pal) | Simply typed λ-calculus: `Lam`, `App`, `Let`, `If` |
+| [`stlc-ext.pal`](examples/programs/stlc-ext.pal) | STLC + unit, products, sums (`Case`) and recursion (`Fix`) |
+| [`lists.pal`](examples/programs/lists.pal) | Polymorphic lists: `Nil`, `Cons`, `Head`, `Fold` |
+| [`hm.pal`](examples/programs/hm.pal) | Hindley–Milner with let-polymorphism (`x : gen a`) |
+| [`logic.pal`](examples/programs/logic.pal) | Propositional logic via Curry–Howard: `infer` a proof, get its theorem |
+| [`broken.pal`](examples/programs/broken.pal) | A deliberate syntax error |
 
 Run them with the script:
 

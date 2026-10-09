@@ -146,18 +146,51 @@ instance Show ExprDecl where
 --   Hypothesis expressions must be pattern variables that are bound to
 --   variables in the target expression (the binders).
 data Premise = Premise
-  { premise'hypotheses :: [(Expr, Type)],
+  { premise'hypotheses :: [Hypothesis],
     premise'judgment :: (Expr, Type)
   }
   deriving (Eq, Lift)
 
 instance Show Premise where
   show (Premise [] j) = showJudgment j
-  show (Premise hs j) = intercalate ", " (fmap showJudgment hs) <> " ⊢ " <> showJudgment j
+  show (Premise hs j) = intercalate ", " (fmap show hs) <> " ⊢ " <> showJudgment j
+
+-- | A hypothesis @x : t@ that brings a variable into scope for one premise.
+--
+--   With 'hyp'generalize' set (written @x : gen t@), the variable gets the
+--   type @t@ /generalised/ over the type variables not free in the context,
+--   so it can be used at different types (let-polymorphism). Otherwise its
+--   type is monomorphic, as a lambda’s parameter must be.
+data Hypothesis = Hypothesis
+  { hyp'var :: Expr,
+    hyp'type :: Type,
+    hyp'generalize :: Bool
+  }
+  deriving (Eq, Lift)
+
+instance Show Hypothesis where
+  show (Hypothesis e t g) = show e <> " : " <> (if g then "gen " else "") <> show t
 
 -- | A premise without hypotheses: @premise e t@ is the judgment @e : t@.
 premise :: Expr -> Type -> Premise
 premise e t = Premise [] (e, t)
+
+-- | A monomorphic hypothesis @x : t@.
+hyp :: Expr -> Type -> Hypothesis
+hyp e t = Hypothesis e t False
+
+-- | A generalised hypothesis @x : gen t@.
+genHyp :: Expr -> Type -> Hypothesis
+genHyp e t = Hypothesis e t True
+
+-- | A type scheme @∀vs. t@: the type of a variable that may be used at
+--   different instances of its quantified variables.
+data Scheme = Forall [String] Type
+  deriving (Eq)
+
+instance Show Scheme where
+  show (Forall [] t) = show t
+  show (Forall vs t) = "∀" <> unwords vs <> ". " <> show t
 
 showJudgment :: (Expr, Type) -> String
 showJudgment (e, t) = show e <> " : " <> show t
@@ -202,7 +235,7 @@ instance Show TypingRule where
 --     * 'ctx'types' — the known type constructors.
 --     * 'ctx'exprs' — base expressions and their declared types.
 --     * 'ctx'rules' — user-defined typing rules.
---     * 'ctx'env'   — local variable bindings, introduced by rule hypotheses
+--     * 'ctx'env'   — local variable bindings (type schemes), introduced by rule hypotheses
 --                     (e.g. a lambda's parameter) while checking a premise.
 --
 --   The context evolves as PAL actions are interpreted (e.g. when a new type
@@ -211,7 +244,7 @@ data Ctx = Ctx
   { ctx'types :: [TypeDecl],
     ctx'exprs :: [ExprDecl],
     ctx'rules :: [TypingRule],
-    ctx'env :: Map String Type
+    ctx'env :: Map String Scheme
   }
 
 instance Show Ctx where

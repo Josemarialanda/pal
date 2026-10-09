@@ -18,7 +18,12 @@ programsDir = "examples" </> "programs"
 
 examples :: [Example]
 examples =
-  [ fileExample "stlc.pal" "STLC with Lam, Let and App, loaded from a .pal file",
+  [ fileExample "arith.pal" "Typed arithmetic (TAPL ch. 8): booleans, naturals, If",
+    fileExample "stlc.pal" "STLC with Lam, Let and App, loaded from a .pal file",
+    fileExample "stlc-ext.pal" "STLC with unit, products, sums (Case) and general recursion (Fix)",
+    fileExample "lists.pal" "Polymorphic lists: Nil, Cons, Head, Fold",
+    fileExample "hm.pal" "Hindley–Milner with let-polymorphism (x : gen a)",
+    fileExample "logic.pal" "Propositional logic via Curry–Howard: proofs as terms",
     fileExample "broken.pal" "A file with a syntax error, to show runtime parse errors"
   ]
   where

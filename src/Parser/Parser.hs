@@ -61,6 +61,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Types
   ( Expr (..),
     ExprDecl (ExprDecl),
+    Hypothesis (..),
     Premise (..),
     Type (TCon, TVar),
     TypeDecl (TypeDecl),
@@ -201,15 +202,31 @@ pRule = do
 -- > x : Num
 -- > x : a |- body : b
 -- > x : a, y : b ⊢ body : c
+--
+-- A hypothesis may be marked @gen@ to generalise its type (let-polymorphism):
+--
+-- > x : gen a |- body : b
 pPremise :: Parser Premise
 pPremise = do
-  bindings <- pBinding `sepBy1` symbol ","
+  hyps <- pHypothesis `sepBy1` symbol ","
   hasHypotheses <- option False (True <$ (symbol "|-" <|> symbol "⊢"))
   if hasHypotheses
-    then Premise bindings <$> pBinding
-    else case bindings of
-      [judgment] -> pure (Premise [] judgment)
+    then Premise hyps <$> pBinding
+    else case hyps of
+      [Hypothesis e t False] -> pure (Premise [] (e, t))
+      [_] -> fail "'gen' is only allowed in hypotheses (before '|-')"
       _ -> fail "expected '|-' after a list of hypotheses"
+
+-- | Parse a hypothesis: a variable with its type, optionally marked @gen@.
+--
+-- > x : a
+-- > x : gen a
+pHypothesis :: Parser Hypothesis
+pHypothesis = do
+  v <- ident
+  _ <- symbol ":"
+  generalize <- option False (True <$ keyword "gen")
+  Hypothesis (EVar v) <$> pTypeExpr <*> pure generalize
 
 -- | Parse a variable with its type, e.g.:
 --

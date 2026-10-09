@@ -115,9 +115,10 @@ inferM ctx e =
             -- Unknown constructor symbol altogether.
             Nothing -> throw (Types.UnknownExpr name)
         -- Variable: a local binding (e.g. a lambda parameter) shadows declarations.
+        -- A generalised binding is instantiated fresh at each use.
         Types.EVar v ->
           case M.lookup v (Types.ctx'env ctx) of
-            Just t -> pure t
+            Just scheme -> instantiateScheme scheme
             Nothing -> maybe (throw (Types.UnknownExpr v)) instantiate (lookupExprType ctx v)
     -- If rule matching failed for another reason, propagate it.
     Left err ->
@@ -317,22 +318,42 @@ applyRule ctx target rule = do
   pure conclTy
   where
     -- A hypothesis must name a variable of the target expression (a binder).
-    bindHypothesis env (hExpr, hTy) =
+    -- Its type is generalised against the enclosing context if marked @gen@.
+    bindHypothesis env (Types.Hypothesis hExpr hTy gen) =
       case substituteExpr env hExpr of
-        Types.EVar v -> pure (v, hTy)
+        Types.EVar v -> (v,) <$> if gen then generalize ctx hTy else pure (Types.Forall [] hTy)
         other -> throw (Types.CustomErr ("expected a variable to bind, got " <> show other))
+
+-- | Generalise a type over the type variables that are not free in the
+--   context (Hindley–Milner’s @gen(Γ, τ)@), under the current substitution.
+--
+--   Variables free in Γ belong to enclosing binders (e.g. a lambda’s
+--   parameter) and must stay shared, so they are not quantified.
+generalize :: (InferEffects r) => Types.Ctx -> Types.Type -> Sem r Types.Scheme
+generalize ctx t = do
+  s <- gets inferSubst
+  let t' = applySubst s t
+      envVars = concatMap (schemeFreeVars s) (M.elems (Types.ctx'env ctx))
+  pure (Types.Forall (filter (`notElem` envVars) (freeTypeVars t')) t')
+  where
+    schemeFreeVars s (Types.Forall vs ty) = filter (`notElem` vs) (freeTypeVars (applySubst s ty))
+
+-- | Instantiate a type scheme: its quantified variables become fresh.
+instantiateScheme :: (InferEffects r) => Types.Scheme -> Sem r Types.Type
+instantiateScheme (Types.Forall vs t) = (`applySubst` t) <$> freshen vs
 
 -- | All type variables mentioned anywhere in a rule.
 ruleTypeVars :: Types.TypingRule -> [String]
 ruleTypeVars (Types.TypingRule _ premises (_, conclTy)) =
   nub (concatMap freeTypeVars (conclTy : concatMap premiseTypes premises))
   where
-    premiseTypes (Types.Premise hyps (_, t)) = t : fmap snd hyps
+    premiseTypes (Types.Premise hyps (_, t)) = t : fmap Types.hyp'type hyps
 
 -- | Apply a type substitution throughout a rule.
 renameRule :: Subst -> Types.TypingRule -> Types.TypingRule
 renameRule s (Types.TypingRule name premises (ce, ct)) =
   Types.TypingRule name (fmap renamePremise premises) (ce, applySubst s ct)
   where
-    renamePremise (Types.Premise hyps j) = Types.Premise (fmap judgment hyps) (judgment j)
+    renamePremise (Types.Premise hyps j) = Types.Premise (fmap renameHyp hyps) (judgment j)
+    renameHyp h = h {Types.hyp'type = applySubst s (Types.hyp'type h)}
     judgment (e, t) = (e, applySubst s t)

@@ -1,0 +1,53 @@
+-- Polymorphic lists with a fold, in the style of ML or Haskell.
+
+type Num
+type Bool
+type List
+type Arrow
+
+expr LitInt : Num
+expr True   : Bool
+expr Nil    : List<a>         -- each use of Nil gets a fresh element type
+expr Add    : Arrow<Num, Arrow<Num, Num>>
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Cons:
+  x  : a
+  xs : List<a>
+->
+  Cons(x, xs) : List<a>
+
+rule Head:
+  xs : List<a>
+->
+  Head(xs) : a
+
+-- Fold(f, z, xs): combine the elements of xs with f, starting from z.
+rule Fold:
+  f  : Arrow<a, Arrow<b, b>>
+  z  : b
+  xs : List<a>
+->
+  Fold(f, z, xs) : b
+
+infer Nil                                                         -- List<a>
+infer Cons(LitInt, Cons(LitInt, Nil))                             -- List<Num>
+infer Cons(Nil, Nil)                                              -- List<List<a>>
+infer Head(Cons(True, Nil))                                       -- Bool
+infer Fold(Add, LitInt, Cons(LitInt, Cons(LitInt, Nil)))          -- Num: sum
+infer Lam(xs, Fold(Lam(x, Lam(acc, Cons(x, acc))), Nil, xs))      -- Arrow<List<a>, List<a>>: copy
+
+-- Expected failures:
+infer Cons(True, Cons(LitInt, Nil))                               -- ✗ mixed element types
+infer Fold(Add, True, Cons(LitInt, Nil))                          -- ✗ the start value must be Num
+infer Head(LitInt)                                                -- ✗ not a list

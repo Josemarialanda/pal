@@ -1,0 +1,41 @@
+-- Typed arithmetic expressions (Pierce, "Types and Programming Languages", ch. 8).
+-- The smallest interesting type system: two types and seven term forms.
+
+type Bool
+type Nat
+
+expr True  : Bool
+expr False : Bool
+expr Zero  : Nat
+
+rule If:
+  cond : Bool
+  then : t
+  else : t
+->
+  If(cond, then, else) : t
+
+rule Succ:
+  n : Nat
+->
+  Succ(n) : Nat
+
+rule Pred:
+  n : Nat
+->
+  Pred(n) : Nat
+
+rule IsZero:
+  n : Nat
+->
+  IsZero(n) : Bool
+
+infer Succ(Succ(Zero))                         -- Nat
+infer IsZero(Pred(Succ(Zero)))                 -- Bool
+infer If(IsZero(Zero), Succ(Zero), Zero)       -- Nat
+infer If(False, True, IsZero(Succ(Zero)))      -- Bool
+
+-- Expected failures:
+infer Succ(True)                               -- ✗ True is not a Nat
+infer If(Zero, True, False)                    -- ✗ the condition must be Bool
+infer If(True, Zero, False)                    -- ✗ the branches differ

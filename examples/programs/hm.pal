@@ -1,0 +1,64 @@
+-- Mini-ML: Hindley–Milner type inference with let-polymorphism.
+--
+-- `x : gen a` generalises x's type over the type variables that are not
+-- free in the context, so a let-bound function can be used at several
+-- types. Lambda-bound variables stay monomorphic, as in ML and Haskell.
+
+type Num
+type Bool
+type Arrow
+type Pair
+
+expr LitInt : Num
+expr True   : Bool
+expr Not    : Arrow<Bool, Bool>
+expr IsZero : Arrow<Num, Bool>
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Pair<a, b>
+
+-- Polymorphic let: the value is checked first, then its type is generalised.
+rule Let:
+  value : a
+  x : gen a |- body : b
+->
+  Let(x, value, body) : b
+
+-- Monomorphic let, for comparison: no `gen`.
+rule MonoLet:
+  value : a
+  x : a |- body : b
+->
+  MonoLet(x, value, body) : b
+
+-- id is used at Bool and at Num: fine with Let.
+infer Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))         -- Pair<Bool, Num>
+
+-- const, used at two different pairs of types.
+infer Let(k, Lam(x, Lam(y, x)), Pair(App(App(k, True), LitInt), App(App(k, LitInt), True)))  -- Pair<Bool, Num>
+
+-- A let-bound function stays polymorphic inside another let.
+infer Let(id, Lam(x, x), Let(twice, Lam(f, Lam(x, App(f, App(f, x)))), App(App(twice, id), LitInt)))  -- Num
+
+-- Generalisation respects the context: z's type is y's type, and y is a
+-- lambda parameter, so z is not generalised and both uses must agree.
+infer Lam(y, Let(z, y, Pair(z, z)))                                     -- Arrow<a, Pair<a, a>>
+
+-- Expected failures:
+infer MonoLet(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))     -- ✗ monomorphic let
+infer Lam(f, Pair(App(f, True), App(f, LitInt)))                       -- ✗ lambda-bound f is monomorphic
+infer Lam(y, Let(z, y, Pair(App(Not, z), App(IsZero, z))))             -- ✗ z shares y's type

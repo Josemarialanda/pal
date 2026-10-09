@@ -18,9 +18,10 @@ the first example that needs it:
 | 6    | `dsl/maybe`                    | Type constructors with parameters, instantiation    |
 | 7    | `data/pairs`, `data/generated` | Destructuring types; programs as data               |
 | 8    | `code/lambda`, `file/stlc`     | Typing contexts (Γ), hypothetical judgments, binders |
-| 9    | —                              | Limitations: let-polymorphism and others            |
+| 9    | —                              | Limitations, and let-polymorphism with `gen`        |
 | 10   | —                              | Exercises                                           |
 | 11   | —                              | Working interactively: the IO interpreter and REPL  |
+| 12   | `file/arith` … `file/logic`     | A catalogue of type systems, from TAPL to Curry–Howard |
 | —    | —                              | Cheat sheet                                         |
 
 ---
@@ -841,11 +842,12 @@ App:   f ↦ x,  x ↦ x       fresh a₂ (argument), b₂ (result)
 PAL keeps its engine small on purpose. Knowing where it stops is part of
 understanding the theory.
 
-### 9.1 No let-polymorphism
+### 9.1 Monomorphic binders, and let-polymorphism with `gen`
 
 In Haskell or ML, `let id = λx. x in (id True, id 1)` typechecks, because
-`let` **generalises** `id` to `∀a. a → a`. PAL's `Let` binds `x` with **one
-monomorphic type**, so the second use clashes with the first:
+`let` **generalises** `id` to `∀a. a → a`. A plain hypothesis in PAL binds
+its variable with **one monomorphic type**, so the `Let` in `stlc.pal` can't
+do this. The second use clashes with the first:
 
 ```
 infer Let(id, Lam(x, x), App(id, True))
@@ -856,9 +858,46 @@ infer Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt)))
 ```
 
 (This uses the `Pair` rule from Part 7 and the `Let` rule from Part 8.) The
-first use fixes `id : Arrow<Bool, Bool>`, and `App(id, LitInt)` then
-fails. *Declared* constants such as `Nothing : Maybe<a>` don't have this
-problem, because they are instantiated fresh at every use (§6.2).
+first use fixes `id : Arrow<Bool, Bool>`, and `App(id, LitInt)` then fails.
+
+To get ML's behaviour, mark the hypothesis **`gen`**:
+
+```
+rule Let:
+  value : a
+  x : gen a |- body : b
+->
+  Let(x, value, body) : b
+```
+
+When a rule binds `x : gen a`, PAL takes the type that `a` has at that
+point, under the current substitution. It then **quantifies** every type
+variable in it that is **not free in Γ**, which gives a *type scheme*. For
+`Lam(x, x)` that is `∀a. Arrow<a, a>`. Each later use of `x` instantiates the
+scheme with fresh variables, the same way declared constants such as
+`Nothing : Maybe<a>` already were (§6.2). With that rule, the example
+typechecks:
+
+```
+✓ Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt))) :: Pair<Bool, Num>
+```
+
+Two details make this sound:
+
+- **Order matters.** `value : a` comes before `x : gen a`, so `a` is already
+  solved when `x` is generalised. Premises are checked top to bottom.
+- **Only variables not free in Γ are generalised.** Those that are free
+  belong to an enclosing binder and must stay shared. In
+  `Lam(y, Let(z, y, …))`, `z` has `y`'s type, so generalising it would let
+  `z` be used at types that `y` cannot have:
+
+  ```
+  ✗ Lam(y, Let(z, y, Pair(App(Not, z), App(IsZero, z)))) -> [Error] Type mismatch: expected Num, got Bool
+  ```
+
+That's also why `Lam` must **not** use `gen`. A lambda's parameter is
+chosen by the caller, so inside the body it has one fixed (if unknown) type.
+§12.5 runs the full comparison in `examples/programs/hm.pal`.
 
 ### 9.2 Other things to know
 
@@ -1076,7 +1115,7 @@ a name instead of trying to infer a variable called `type`.
 
 `./pal-repl.sh FILE` (the same as `pal -i FILE`) runs a file and then opens
 a REPL **with that file's context**. That makes it easy to poke at an
-existing language. For example, here is the let-polymorphism limitation from §9.1, reproduced live on top of
+existing language. For example, here is the monomorphic `Let` from §9.1, reproduced live on top of
 the STLC rules:
 
 ```text
@@ -1166,6 +1205,144 @@ main = do
 
 ---
 
+## 12. A catalogue of type systems
+
+The files in [`examples/programs/`](examples/programs/) each define a
+complete, classic type system in PAL. They reuse the ideas from Parts 3–9,
+so this part only points out what is new in each one. Run any of them with
+`./run-examples.sh file/NAME`, or explore one interactively with
+`./pal-repl.sh examples/programs/NAME.pal`.
+
+| File | Type system | New idea |
+| ---- | ----------- | -------- |
+| `arith.pal` | Typed arithmetic (TAPL ch. 8) | The smallest useful system |
+| `stlc-ext.pal` | STLC + unit, products, sums, `Fix` | A rule with **two** hypothetical premises |
+| `lists.pal` | Polymorphic lists with `Fold` | Recursive data and higher-order eliminators |
+| `hm.pal` | Hindley–Milner | `gen`: let-polymorphism |
+| `logic.pal` | Propositional logic | Curry–Howard: types are propositions |
+
+### 12.1 `arith.pal`: typed arithmetic
+
+This is the first typed language in Pierce's *Types and Programming
+Languages*: two types (`Bool`, `Nat`) and seven term forms. Every rule is a
+direct transcription of the book's typing rules. For example,
+**T-IsZero** becomes:
+
+```
+rule IsZero:
+  n : Nat
+->
+  IsZero(n) : Bool
+```
+
+```
+✓ If(IsZero(Zero), Succ(Zero), Zero) :: Nat
+✗ If(Zero, True, False) -> [Error] Type mismatch: expected Bool, got Nat
+✗ If(True, Zero, False) -> [Error] Type mismatch: expected Nat, got Bool
+```
+
+Try it: add a `Plus(m, n) : Nat` rule. It needs two premises, one per argument.
+
+### 12.2 `stlc-ext.pal`: products, sums and recursion
+
+Products (`Pair`/`Fst`/`Snd`) work like `data/pairs` (§7.1). The new
+piece is the **sum eliminator**. `Case` must check each branch with *its
+own* bound variable, so the rule has two hypothetical premises:
+
+```
+rule Case:
+  s : Sum<a, b>
+  x : a |- left : c
+  y : b |- right : c
+->
+  Case(s, x, left, y, right) : c
+```
+
+Both branches must produce the same `c`, just as `If`'s branches must
+agree:
+
+```
+✓ Lam(s, Case(s, x, Inr(x), y, Inl(y))) :: Arrow<Sum<a, b>, Sum<b, a>>
+✓ Case(Inl(Zero), n, App(Succ, n), b, Zero) :: Nat
+✗ Case(Inl(Zero), n, App(Succ, n), b, True) -> [Error] Type mismatch: expected Nat, got Bool
+```
+
+`Fix(f) : a` given `f : Arrow<a, a>` adds general recursion. The type
+system doesn't care that `Fix(Lam(f, Lam(n, App(f, n))))` loops forever.
+It only checks that the types fit: `Arrow<a, b>`.
+
+### 12.3 `lists.pal`: polymorphic data and folds
+
+`Nil` is declared as `expr Nil : List<a>`, so each use gets a fresh element
+type (§6.2), and `Cons(Nil, Nil)` is a `List<List<a>>`. `Fold` takes a
+function as an argument, so its premise has an `Arrow` type, and
+unification threads the element and accumulator types through:
+
+```
+rule Fold:
+  f  : Arrow<a, Arrow<b, b>>
+  z  : b
+  xs : List<a>
+->
+  Fold(f, z, xs) : b
+```
+
+```
+✓ Fold(Add, LitInt, Cons(LitInt, Cons(LitInt, Nil))) :: Num
+✓ Lam(xs, Fold(Lam(x, Lam(acc, Cons(x, acc))), Nil, xs)) :: Arrow<List<a>, List<a>>
+✗ Cons(True, Cons(LitInt, Nil)) -> [Error] Type mismatch: expected Bool, got Num
+```
+
+### 12.4 `logic.pal`: proofs as programs
+
+The **Curry–Howard correspondence** says that a type *is* a proposition,
+and a term of that type *is* a proof of it. Read `Implies<A, B>` as
+A → B, `And` as ∧, and `Or` as ∨. Then the rules from §8 and §12.2 are
+exactly the rules of **natural deduction**:
+
+| Logic rule | PAL rule |
+| ---------- | -------- |
+| → introduction (assume A, derive B) | `Lam` (hypothesis `x : a`) |
+| → elimination (modus ponens) | `App` |
+| ∧ introduction / elimination | `Pair` / `Fst`, `Snd` |
+| ∨ introduction / elimination (proof by cases) | `Inl`, `Inr` / `Case` |
+| ⊥ elimination (ex falso) | `Absurd` |
+
+So `infer` on a proof term answers **"what does this prove?"**:
+
+```
+✓ Lam(p, Pair(Snd(p), Fst(p))) :: Implies<And<a, b>, And<b, a>>
+✓ Lam(f, Lam(a, Lam(b, App(f, Pair(a, b))))) :: Implies<Implies<And<a, b>, c>, Implies<a, Implies<b, c>>>
+✓ Lam(p, Case(Snd(p), b, Inl(Pair(Fst(p), b)), c, Inr(Pair(Fst(p), c)))) :: Implies<And<a, Or<b, c>>, Or<And<a, b>, And<a, c>>>
+✗ Lam(p, App(p, p)) -> [Error] Infinite type: a ~ Implies<a, b>
+```
+
+These are commutativity of ∧, currying, and distributivity of ∧ over ∨. The
+type variables `a`, `b`, `c` play the role of arbitrary propositions A, B,
+C. The last term proves nothing: the occurs check (§5.3) rejects it.
+
+### 12.5 `hm.pal`: Hindley–Milner
+
+This file defines two lets side by side, `Let` with `x : gen a` and
+`MonoLet` with plain `x : a`, and runs the same programs through both
+(see §9.1 for the theory):
+
+```
+✓ Let(id, Lam(x, x), Pair(App(id, True), App(id, LitInt))) :: Pair<Bool, Num>
+✓ Let(id, Lam(x, x), Let(twice, Lam(f, Lam(x, App(f, App(f, x)))), App(App(twice, id), LitInt))) :: Num
+✓ Lam(y, Let(z, y, Pair(z, z))) :: Arrow<a, Pair<a, a>>
+✗ MonoLet(id, Lam(x, x), Pair(App(id, True), App(id, LitInt))) -> [Error] Type mismatch: expected Bool, got Num
+✗ Lam(f, Pair(App(f, True), App(f, LitInt))) -> [Error] Type mismatch: expected Bool, got Num
+✗ Lam(y, Let(z, y, Pair(App(Not, z), App(IsZero, z)))) -> [Error] Type mismatch: expected Num, got Bool
+```
+
+Together, the first and fourth lines are the whole story of
+let-polymorphism. The fifth shows why lambda-bound variables must not be
+generalised. The last shows that generalisation leaves alone the variables
+that are free in Γ.
+
+---
+
 ## Cheat sheet
 
 ```
@@ -1175,6 +1352,7 @@ rule Name:                     inference rule
   x : T                          plain premise
   x : A |- body : B              hypothetical premise (x is in scope while checking body)
   x : A, y : B ⊢ body : C        several hypotheses
+  x : gen A |- body : B          generalised hypothesis (let-polymorphism)
 ->
   Con(x, y, …) : T               conclusion (matched by constructor + arity)
 infer e                        search for a derivation of e

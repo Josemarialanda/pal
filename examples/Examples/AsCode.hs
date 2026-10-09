@@ -20,6 +20,7 @@ import Types
     defineExpr,
     defineRule,
     defineType,
+    hyp,
     infer,
     premise,
   )
@@ -95,7 +96,7 @@ lambda = do
   defineRule $
     TypingRule
       "Lam"
-      [Premise [(EVar "x", TVar "a")] (EVar "body", TVar "b")]
+      [Premise [hyp (EVar "x") (TVar "a")] (EVar "body", TVar "b")]
       (con "Lam" [EVar "x", EVar "body"], arrow (TVar "a") (TVar "b"))
 
   -- App(f, x) : b  given  f : Arrow<a, b>, x : a
