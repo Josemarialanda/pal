@@ -39,11 +39,14 @@
   .logo b span { color: var(--accent); font-family: Georgia, serif; font-style: italic; margin-right: 4px; }
   .logo small { color: var(--muted); }
   label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
-  kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-2); color: var(--muted); }
 
   /* Layout */
   main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 0; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; } }
+  /* Narrow screens stack the panes and let the page scroll, so Results keeps a usable height */
+  @media (max-width: 900px) {
+    body { height: auto; min-height: 100%; }
+    main { flex: none; grid-template-columns: 1fr; grid-template-rows: 55vh minmax(45vh, auto); }
+  }
   .pane { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .pane-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
   .pane-head .status { text-transform: none; letter-spacing: 0; font-size: 13px; }
@@ -125,7 +128,7 @@
 </main>
 
 <footer>
-  <span>Checks as you type · <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> to run now</span>
+  <span>Checks as you type</span>
   <span>Your program is saved in this browser</span>
   <span>Lowercase type names are type variables · <code>x : a |- e : b</code> binds <code>x</code> · <code>gen</code> generalises</span>
 </footer>
@@ -258,7 +261,6 @@ src.addEventListener("scroll", syncScroll);
 src.addEventListener("click", showCursor);
 src.addEventListener("keyup", showCursor);
 src.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); return; }
   if (e.key === "Tab" && !e.shiftKey) {
     e.preventDefault();
     const { selectionStart: s, selectionEnd: t } = src;
