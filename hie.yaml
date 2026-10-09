@@ -4,3 +4,7 @@ cradle:
       component: "lib:pal"
     - path: "examples"
       component: "exe:pal-examples"
+    - path: "app"
+      component: "exe:pal"
+    - path: "ui"
+      component: "exe:pal-ui"

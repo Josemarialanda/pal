@@ -10,6 +10,9 @@ license: NONE
 author: José María Landa Chávez
 maintainer: José María Landa Chávez <josemaria.landa@gmail.com>
 copyright: 2025-10-04 José María Landa Chávez
+extra-source-files:
+  # Embedded into pal-ui at compile time.
+  - ui/static/*
 extra-doc-files:
   - README.md
 tested-with:
@@ -79,3 +82,18 @@ executables:
     dependencies:
       - pal
       - filepath
+
+  pal-ui:
+    source-dirs: ui
+    main: Main.hs
+    other-modules:
+      [Ui.Embed, Ui.Json, Ui.Http, Ui.Api]
+    dependencies:
+      - pal
+      - network
+      - bytestring
+      - text
+      - process
+      - template-haskell
+      - megaparsec
+    ghc-options: [-threaded]

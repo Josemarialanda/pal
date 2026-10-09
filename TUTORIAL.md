@@ -12,7 +12,7 @@ Learn how type systems work by building some in PAL. Each section adds one idea 
 8. [More type systems](#8-more-type-systems)
 9. [Exercises](#9-exercises)
 
-To follow along, open a REPL with `nix develop` and then `pal`. The [README](README.md) has the full syntax reference.
+To follow along, open a REPL with `nix develop` and then `pal`, or run `pal-ui` for a browser editor that checks as you type. The [README](README.md) has the full syntax reference.
 
 ---
 

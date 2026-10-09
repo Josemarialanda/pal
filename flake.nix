@@ -72,6 +72,25 @@
               exec "$pal_bin" "$@"
             '';
           };
+          # Build the working tree's `pal-ui` (if needed) and run it: serves the
+          # web UI on http://127.0.0.1 and opens it in a browser.
+          #   pal-ui                # default port 7337 (any free port if taken)
+          #   pal-ui --port N       # a specific port
+          #   pal-ui --no-open      # just print the URL
+          pal-ui = pkgs.writeShellApplication {
+            name = "pal-ui";
+            runtimeInputs = [ hspkgs.cabal-install pkgs.hpack pkgs.git ];
+            text = ''
+              root="$(git rev-parse --show-toplevel)"
+              ui_bin="$(
+                cd "$root"
+                hpack >/dev/null
+                cabal build -v0 exe:pal-ui >&2 || exit 1
+                cabal list-bin -v0 exe:pal-ui
+              )"
+              exec "$ui_bin" "$@"
+            '';
+          };
           # Build and run the PAL examples.
           #   run-examples                    # run every example (results only)
           #   run-examples dsl                # run a group: code | data | dsl | file
@@ -104,6 +123,7 @@
               format
               pal
               run-examples
+              pal-ui
               pkgs.bashInteractive
               pkgs.hpack
             ];

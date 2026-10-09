@@ -13,7 +13,7 @@ module Interpreters.Core where
 
 import qualified Interpreters.Common.Actions as Actions
 import Polysemy (Members, Sem, interpret, run)
-import Polysemy.State (State, evalState, get)
+import Polysemy.State (State, evalState, get, runState)
 import Types
   ( Ctx,
     Err,
@@ -40,6 +40,15 @@ runInterpreter ctx =
     . evalState ctx -- Initialize and thread the mutable context
     . interpreter -- Interpret PAL effects into state transitions
 
+-- | Like 'runInterpreter', for a program with any result, also returning the
+--   final context. This lets a caller run a program in steps, threading the
+--   context from one step into the next.
+runInterpreterWithCtx :: Ctx -> Sem [PAL, State Ctx] a -> (Ctx, a)
+runInterpreterWithCtx ctx =
+  run
+    . runState ctx
+    . interpreter
+
 --------------------------------------------------------------------------------
 
 -- | PAL effect interpreter
@@ -57,8 +66,8 @@ runInterpreter ctx =
 --   * 'Infer'      — perform type inference for a given expression.
 interpreter ::
   (Members '[State Ctx] r) =>
-  Sem (PAL ': r) (Either Err Type) ->
-  Sem r (Either Err Type)
+  Sem (PAL ': r) a ->
+  Sem r a
 interpreter = interpret $ \case
   DefineType td -> Actions.defineType td
   DefineExpr ed -> Actions.defineExpr ed

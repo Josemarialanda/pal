@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAL — typechecker sandbox</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237c3aed'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='serif'%3E%CE%BB%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f7f7fb; --panel: #ffffff; --panel-2: #f1f1f7; --border: #e2e2ec;
+    --text: #1f2330; --muted: #6b7083; --faint: #a3a7b7;
+    --accent: #7c3aed; --accent-2: #0891b2;
+    --ok: #16a34a; --ok-bg: #ecfdf3; --err: #dc2626; --err-bg: #fef2f2;
+    --kw: #2563eb; --tycon: #0891b2; --tyvar: #c026d3; --con: #1f2330; --var: #475569;
+    --comment: #94a3b8; --punct: #9aa0b4; --rule: #b45309;
+    --shadow: 0 1px 2px rgba(20, 20, 40, .06), 0 4px 16px rgba(20, 20, 40, .05);
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1117; --panel: #161922; --panel-2: #1c2030; --border: #272c3d;
+      --text: #e6e8ef; --muted: #9298ad; --faint: #5d6378;
+      --accent: #a78bfa; --accent-2: #22d3ee;
+      --ok: #4ade80; --ok-bg: #11251a; --err: #f87171; --err-bg: #2a1416;
+      --kw: #60a5fa; --tycon: #22d3ee; --tyvar: #e879f9; --con: #f1f2f6; --var: #b8c0d4;
+      --comment: #5d6680; --punct: #6b7290; --rule: #fbbf24;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); display: flex; flex-direction: column; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
+  .logo { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
+  .logo b { font: 600 20px/1 var(--sans); letter-spacing: .5px; }
+  .logo b span { color: var(--accent); font-family: Georgia, serif; font-style: italic; margin-right: 4px; }
+  .logo small { color: var(--muted); }
+  label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
+  kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-2); color: var(--muted); }
+
+  /* Layout */
+  main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 0; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; } }
+  .pane { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .pane-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .pane-head .status { text-transform: none; letter-spacing: 0; font-size: 13px; }
+
+  /* Editor: a transparent textarea over a highlighted <pre>, plus a gutter */
+  .editor { position: relative; flex: 1; display: flex; min-height: 0; font: 13.5px/1.6 var(--mono); }
+  .gutter { padding: 12px 10px 12px 14px; color: var(--faint); text-align: right; user-select: none; overflow: hidden; white-space: pre; background: var(--panel-2); border-right: 1px solid var(--border); min-width: 46px; }
+  .gutter .bad { color: var(--err); font-weight: 700; }
+  .code { position: relative; flex: 1; min-width: 0; }
+  .code pre, .code textarea { position: absolute; inset: 0; margin: 0; padding: 12px 14px; font: inherit; white-space: pre; overflow: auto; tab-size: 2; border: 0; }
+  .code pre { pointer-events: none; color: var(--text); }
+  .code textarea { color: transparent; background: transparent; caret-color: var(--accent); resize: none; outline: none; }
+  .code textarea::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); color: transparent; }
+  .errline { background: var(--err-bg); box-shadow: inset 3px 0 0 var(--err); }
+
+  /* Syntax classes (editor and results) */
+  .kw { color: var(--kw); font-weight: 600; }
+  .comment { color: var(--comment); font-style: italic; }
+  .tycon { color: var(--tycon); }
+  .tyvar { color: var(--tyvar); font-style: italic; }
+  .con { color: var(--con); font-weight: 600; }
+  .var { color: var(--var); font-style: italic; }
+  .punct { color: var(--punct); }
+
+  /* Parse error banner */
+  .parse-error { display: none; margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--err-bg); color: var(--err); font: 12.5px/1.5 var(--mono); cursor: pointer; white-space: pre-wrap; }
+  .parse-error.show { display: block; }
+
+  /* Results */
+  .results { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .empty { color: var(--muted); text-align: center; margin: auto; }
+  .item { border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; font: 13.5px/1.55 var(--mono); background: var(--panel); overflow-x: auto; flex-shrink: 0; }  /* never squash items to fit: the list scrolls instead */
+  .item.ok { border-left: 3px solid var(--ok); }
+  .item.bad { border-left: 3px solid var(--err); background: var(--err-bg); }
+  .item.def { background: var(--panel-2); color: var(--muted); }
+  .mark { font-weight: 700; margin-right: 8px; }
+  .ok .mark { color: var(--ok); }
+  .bad .mark { color: var(--err); }
+  .sep { color: var(--punct); margin: 0 6px; }
+  .err-msg { margin-top: 4px; padding-left: 22px; color: var(--err); font-family: var(--sans); font-size: 13px; }
+  .err-msg .tycon, .err-msg .tyvar, .err-msg .con { font-family: var(--mono); }
+  .tag { display: inline-block; font: 600 10.5px/1 var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 3px 7px; margin-right: 10px; vertical-align: 1px; background: var(--panel); }
+  body.hide-defs .item.def { display: none; }
+
+  /* Inference rules: premises over a bar, conclusion below, name at the side */
+  .rule { display: inline-grid; grid-template-columns: auto auto; align-items: center; column-gap: 10px; margin: 6px 0 2px 4px; }
+  .rule .premises { display: flex; gap: 28px; justify-content: center; padding: 0 10px 3px; }
+  .rule .bar { grid-column: 1; border-top: 1.5px solid var(--text); }
+  .rule .name { grid-column: 2; grid-row: 2; color: var(--rule); font-style: italic; font-family: var(--sans); font-size: 13px; }
+  .rule .conclusion { grid-column: 1; text-align: center; padding: 3px 10px 0; }
+  .turnstile { color: var(--accent); margin: 0 6px; }
+
+  footer { padding: 6px 18px 10px; color: var(--faint); font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><b><span>λ</span>PAL</b><small>typechecker sandbox</small></div>
+  <label class="toggle"><input type="checkbox" id="showDefs" checked> definitions</label>
+</header>
+
+<main>
+  <section class="pane">
+    <div class="pane-head"><span>Program</span><span class="status" id="cursor"></span></div>
+    <div class="editor">
+      <div class="gutter" id="gutter">1</div>
+      <div class="code">
+        <pre id="highlight" aria-hidden="true"></pre>
+        <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="PAL program"></textarea>
+      </div>
+    </div>
+    <pre class="parse-error" id="parseError" title="Click to jump to the error"></pre>
+  </section>
+
+  <section class="pane">
+    <div class="pane-head"><span>Results</span><span class="status" id="summary"></span></div>
+    <div class="results" id="results" aria-live="polite"></div>
+  </section>
+</main>
+
+<footer>
+  <span>Checks as you type · <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> to run now</span>
+  <span>Your program is saved in this browser</span>
+  <span>Lowercase type names are type variables · <code>x : a |- e : b</code> binds <code>x</code> · <code>gen</code> generalises</span>
+</footer>
+
+<script>
+"use strict";
+
+const WELCOME = `-- Welcome to PAL! Define a type system, then ask for types.
+
+type Bool
+type Arrow
+
+expr True  : Bool
+expr False : Bool
+
+rule If:
+  cond : Bool
+  then : a
+  else : a
+->
+  If(cond, then, else) : a
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+infer If(True, False, True)
+infer Lam(x, If(x, x, False))
+infer If(True, False, Lam(y, y))
+`;
+
+const $ = (id) => document.getElementById(id);
+const src = $("source"), hl = $("highlight"), gutter = $("gutter");
+const results = $("results"), summary = $("summary"), parseErrorBox = $("parseError");
+const store = {
+  get: (k, d) => { try { const v = localStorage.getItem("pal." + k); return v === null ? d : v; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem("pal." + k, v); } catch {} },
+};
+
+let errorLine = null;   // 1-based line of the current parse error
+let errorPos = null;    // {line, column}
+
+/* ---------- Highlighting ---------- */
+
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const span = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
+const KEYWORDS = new Set(["type", "expr", "rule", "infer", "gen"]);
+
+// Highlight PAL source. Type positions (after ':' up to the end of the judgment)
+// use type colours; everything else uses expression colours.
+function highlightSource(text) {
+  return text.split("\n").map((line, i) => {
+    let out = "", inType = false, depth = 0;
+    const re = /(--.*$)|([A-Za-z][A-Za-z0-9_]*)|(\|-|⊢|->)|([:,()<>])|(\s+)|(.)/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      const [tok, comment, ident, arrow, punct] = m;
+      if (comment) out += span("comment", tok);
+      else if (ident) {
+        if (KEYWORDS.has(ident) && (ident !== "gen" || inType)) out += span("kw", tok);
+        else if (inType) out += span(/^[a-z]/.test(ident) ? "tyvar" : "tycon", tok);
+        else out += span(/^[a-z]/.test(ident) ? "var" : "con", tok);
+      } else if (arrow) { out += span("kw", tok); inType = false; }
+      else if (punct) {
+        out += span("punct", tok);
+        if (tok === ":") inType = true;
+        else if (tok === "<") depth++;
+        else if (tok === ">") depth = Math.max(0, depth - 1);
+        else if (tok === "," && depth === 0) inType = false; // next hypothesis
+      }
+      else out += esc(tok);
+    }
+    return i + 1 === errorLine ? `<span class="errline">${out || " "}</span>` : out;
+  }).join("\n") + "\n ";
+}
+
+// Highlight a type or an expression as printed by PAL.
+function highlightTerm(text, isType) {
+  return text.replace(/([A-Za-z][A-Za-z0-9_]*)|([^A-Za-z]+)/g, (tok, ident) =>
+    ident
+      ? span(/^[a-z]/.test(ident) ? (isType ? "tyvar" : "var") : (isType ? "tycon" : "con"), tok)
+      : span("punct", tok));
+}
+const ty = (t) => highlightTerm(t, true);
+const ex = (e) => highlightTerm(e, false);
+const judgment = (j) => `${ex(j.expr)}<span class="sep">:</span>${ty(j.type)}`;
+
+// Highlight the types inside an error message.
+function highlightError(msg) {
+  let m;
+  if ((m = /^(Type mismatch: expected )(.+)(, got )(.+)$/.exec(msg))) return esc(m[1]) + ty(m[2]) + esc(m[3]) + ty(m[4]);
+  if ((m = /^(Infinite type: )(.+)( ~ )(.+)$/.exec(msg))) return esc(m[1]) + ty(m[2]) + esc(m[3]) + ty(m[4]);
+  if ((m = /^(Unknown expression → )(.+)$/.exec(msg))) return esc(m[1]) + ex(m[2]);
+  if ((m = /^(No typing rule matched for → )(.+)$/.exec(msg))) return esc(m[1]) + ex(m[2]);
+  return esc(msg);
+}
+
+/* ---------- Editor ---------- */
+
+function refreshEditor() {
+  const text = src.value;
+  hl.innerHTML = highlightSource(text);
+  const n = text.split("\n").length;
+  let g = "";
+  for (let i = 1; i <= n; i++) g += (i === errorLine ? `<span class="bad">${i}</span>` : i) + "\n";
+  gutter.innerHTML = g + " ";
+  syncScroll();
+  showCursor();
+}
+function syncScroll() { hl.scrollTop = src.scrollTop; hl.scrollLeft = src.scrollLeft; gutter.scrollTop = src.scrollTop; }
+function showCursor() {
+  const before = src.value.slice(0, src.selectionStart).split("\n");
+  $("cursor").textContent = `Ln ${before.length}, Col ${before[before.length - 1].length + 1}`;
+}
+function jumpTo(line, column) {
+  const lines = src.value.split("\n");
+  let pos = 0;
+  for (let i = 0; i < line - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+  pos += column - 1;
+  src.focus();
+  src.setSelectionRange(pos, pos);
+  const lineHeight = parseFloat(getComputedStyle(src).lineHeight);
+  src.scrollTop = Math.max(0, (line - 4) * lineHeight);
+  syncScroll(); showCursor();
+}
+
+src.addEventListener("input", () => { store.set("source", src.value); refreshEditor(); scheduleRun(); });
+src.addEventListener("scroll", syncScroll);
+src.addEventListener("click", showCursor);
+src.addEventListener("keyup", showCursor);
+src.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); return; }
+  if (e.key === "Tab" && !e.shiftKey) {
+    e.preventDefault();
+    const { selectionStart: s, selectionEnd: t } = src;
+    src.setRangeText("  ", s, t, "end");
+    src.dispatchEvent(new Event("input"));
+  }
+});
+parseErrorBox.addEventListener("click", () => errorPos && jumpTo(errorPos.line, errorPos.column));
+
+/* ---------- Running ---------- */
+
+let timer = null, requestId = 0;
+function scheduleRun() { clearTimeout(timer); timer = setTimeout(run, 300); }
+
+async function run() {
+  clearTimeout(timer);
+  const id = ++requestId;
+  let data;
+  try {
+    const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: src.value });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    data = await res.json();
+  } catch (err) {
+    if (id !== requestId) return;
+    summary.innerHTML = `<span style="color:var(--err)">server unreachable</span>`;
+    results.innerHTML = `<div class="empty">Couldn't reach the PAL server.<br>Is <code>pal-ui</code> still running?<br><small>${esc(String(err))}</small></div>`;
+    return;
+  }
+  if (id !== requestId) return; // a newer run has started
+  render(data);
+}
+
+function render(data) {
+  if (!data.ok) {
+    const e = data.error;
+    errorLine = e.line; errorPos = { line: e.line, column: e.column };
+    parseErrorBox.textContent = `Line ${e.line}, column ${e.column}: ${e.message}`;
+    parseErrorBox.classList.add("show");
+    summary.innerHTML = `<span style="color:var(--err)">syntax error</span>`;
+    refreshEditor();
+    return; // keep the last good results visible
+  }
+  errorLine = null; errorPos = null;
+  parseErrorBox.classList.remove("show");
+  refreshEditor();
+
+  const items = data.items;
+  if (items.length === 0) {
+    results.innerHTML = `<div class="empty">Nothing yet. Define some types and rules, then <code>infer</code> an expression.</div>`;
+    summary.textContent = "";
+    return;
+  }
+  const html = items.map(renderItem).join("");
+  results.innerHTML = html;
+  const infers = items.filter((i) => i.kind === "infer");
+  const good = infers.filter((i) => i.ok).length, bad = infers.length - good;
+  summary.innerHTML =
+    `<span style="color:var(--ok)">${good} ✓</span>` +
+    (bad ? ` <span class="sep">·</span><span style="color:var(--err)">${bad} ✗</span>` : "");
+}
+
+function renderItem(item) {
+  switch (item.kind) {
+    case "type":
+      return `<div class="item def"><span class="tag">type</span>${span("tycon", item.name)}${item.args.map((a) => " " + span("tyvar", a)).join("")}</div>`;
+    case "expr":
+      return `<div class="item def"><span class="tag">expr</span>${ex(item.name)}<span class="sep">:</span>${ty(item.type)}</div>`;
+    case "rule":
+      return `<div class="item def"><span class="tag">rule</span>${renderRule(item.rule)}</div>`;
+    case "infer":
+      return item.ok
+        ? `<div class="item ok"><span class="mark">✓</span>${ex(item.expr)}<span class="sep">::</span>${ty(item.type)}</div>`
+        : `<div class="item bad"><span class="mark">✗</span>${ex(item.expr)}<div class="err-msg">${highlightError(item.error)}</div></div>`;
+  }
+  return "";
+}
+
+function renderRule(rule) {
+  const premise = (p) =>
+    p.hypotheses.length === 0
+      ? `<span>${judgment(p.judgment)}</span>`
+      : `<span>${p.hypotheses.map((h) => `${ex(h.expr)}<span class="sep">:</span>${h.gen ? span("kw", "gen") + " " : ""}${ty(h.type)}`).join(span("punct", ", "))}<span class="turnstile">⊢</span>${judgment(p.judgment)}</span>`;
+  return `<div class="rule">
+      <div class="premises">${rule.premises.map(premise).join("") || "&nbsp;"}</div><div></div>
+      <div class="bar"></div><div class="name">${esc(rule.name)}</div>
+      <div class="conclusion">${judgment(rule.conclusion)}</div>
+    </div>`;
+}
+
+/* ---------- Settings ---------- */
+
+const showDefs = $("showDefs");
+showDefs.checked = store.get("showDefs", "1") === "1";
+document.body.classList.toggle("hide-defs", !showDefs.checked);
+showDefs.addEventListener("change", () => {
+  document.body.classList.toggle("hide-defs", !showDefs.checked);
+  store.set("showDefs", showDefs.checked ? "1" : "0");
+});
+
+src.value = store.get("source", WELCOME);
+refreshEditor();
+run();
+</script>
+</body>
+</html>

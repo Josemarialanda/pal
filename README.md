@@ -27,10 +27,11 @@ nix develop                              # or let direnv load the shell
 pal                                      # interactive REPL
 pal FILE.pal                             # typecheck a file
 pal -i examples/programs/stlc.pal        # REPL with a file preloaded
+pal-ui                                   # web UI, opens in your browser
 run-examples                             # run every bundled example
 ```
 
-The dev shell's `pal` rebuilds from your working tree first, so it always runs your latest code.
+The dev shell's `pal` and `pal-ui` rebuild from your working tree first, so they always run your latest code.
 
 `pal` exits with **1** if any `infer` fails, so it works as a checker in scripts and CI.
 
@@ -92,6 +93,21 @@ pal❯ Not(True)
 
 `pal` flags: `-i FILE...` runs files and then opens a REPL with their context, and `--no-color` turns off colour (as do `NO_COLOR` and piped output).
 
+## The web UI
+
+`pal-ui` serves an editor on `http://127.0.0.1:7337` and opens it in your browser. It checks your program as you type:
+
+- The editor highlights PAL syntax. Syntax errors are marked on their line, and clicking the message jumps to it.
+- Results are highlighted like the REPL's, and rules are drawn as inference rules.
+- Your program is saved in the browser between visits.
+
+| Flag        | Effect                                                     |
+| ----------- | ---------------------------------------------------------- |
+| `--port N`  | Use port `N` (default 7337; any free port if it's taken)   |
+| `--no-open` | Don't open a browser, just print the URL                   |
+
+The page is compiled into the binary, so `pal-ui` is a single self-contained executable. It only listens on `127.0.0.1` and rejects requests for any other host name, so other machines and other websites can't reach it.
+
 ## Examples
 
 [`examples/programs/`](examples/programs/) is a small catalogue of type systems:
@@ -146,6 +162,7 @@ Run a program with one of three interpreters:
 | Command                   | Does                                       |
 | ------------------------- | ------------------------------------------ |
 | `pal`                     | Build and run `pal`                        |
+| `pal-ui`                  | Build and run the web UI                   |
 | `format` / `nix fmt`      | Format Haskell sources with ormolu         |
 | `format --check`          | Fail if anything is unformatted            |
 | `run-examples`            | Build and run the examples                 |
@@ -156,3 +173,4 @@ Run a program with one of three interpreters:
 | [`src/Interpreters/Common/Actions.hs`](src/Interpreters/Common/Actions.hs) | Inference and unification        |
 | [`src/Parser/`](src/Parser/)                                               | Syntax and quasiquoter           |
 | [`src/Repl.hs`](src/Repl.hs), [`app/Main.hs`](app/Main.hs)                 | REPL and the `pal` command       |
+| [`ui/`](ui/)                                                                | The web UI: [`ui/static/index.html`](ui/static/index.html) (the page) and the server it is embedded in |
