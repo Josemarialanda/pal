@@ -1,0 +1,45 @@
+# Deploy the web UI to Vercel on every push to main or testing.
+#
+#   main    -> https://pal-ui.vercel.app          (Vercel project pal-ui)
+#   testing -> https://pal-ui-testing.vercel.app  (Vercel project pal-ui-testing)
+#
+# pal-ui is built here with Nix and uploaded prebuilt (see deploy/vercel/),
+# so Vercel never compiles Haskell. Needs a VERCEL_TOKEN repository secret.
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main, testing]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: team_2fsKeBCRXBM676e49qYjAb4T
+      VERCEL_PROJECT_ID: ${{ github.ref_name == 'main' && 'prj_iw8kISSbUZy4A8i3Z1fB1ao4KHaf' || 'prj_yAxdp7GtErJr1er9SQ2uv3TKWYLj' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Build pal-ui
+        run: nix build .#defaultPackage.x86_64-linux --print-build-logs
+
+      - name: Assemble Vercel output
+        run: deploy/vercel/build-output.sh result/bin/pal-ui .vercel/output
+
+      - name: Deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::The VERCEL_TOKEN repository secret is not set."
+            exit 1
+          fi
+          url="$(npx --yes vercel@63.1.0 deploy --prebuilt --prod --token "$VERCEL_TOKEN")"
+          echo "Deployed $url" >> "$GITHUB_STEP_SUMMARY"
