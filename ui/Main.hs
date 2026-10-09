@@ -5,9 +5,11 @@
 -- > pal-ui                 serve on http://127.0.0.1:7337 and open a browser
 -- > pal-ui --port N        use port N (0 picks any free port)
 -- > pal-ui --no-open       don't open a browser, just print the URL
+-- > pal-ui --page          print the page (for static hosting) and exit
 --
--- The page is embedded in the executable at
--- compile time (see "Ui.Embed"), so the binary is self-contained.
+-- The page and the colour schemes are embedded in the executable at
+-- compile time (see "Ui.Embed" and "Ui.Themes"), so the binary is
+-- self-contained.
 module Main (main) where
 
 import Control.Concurrent (forkIO)
@@ -21,7 +23,7 @@ import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, hSetEncoding, stder
 import System.Info (os)
 import System.Process (StdStream (..), createProcess, proc, std_err, std_in, std_out, waitForProcess)
 import Text.Read (readMaybe)
-import Ui.Api (app)
+import Ui.Api (app, page)
 import Ui.Http (listenLocal, serve)
 
 data Options = Options
@@ -40,6 +42,7 @@ main = do
   hSetBuffering stdout LineBuffering
   args <- getArgs
   when (any (`elem` ["-h", "--help"]) args) (putStr usage >> exitSuccess)
+  when (args == ["--page"]) (putStr page >> exitSuccess)
   opts <- either (\msg -> hPutStrLn stderr msg >> exitFailure) pure (parseArgs (Options Nothing True) args)
   (sock, port) <- bindPort (optPort opts)
   let url = "http://127.0.0.1:" <> show port <> "/"
@@ -60,11 +63,13 @@ usage :: String
 usage =
   unlines
     [ "Usage: pal-ui [--port N] [--no-open]",
+      "       pal-ui --page",
       "",
       "Serve the PAL web UI on http://127.0.0.1 and open it in a browser.",
       "",
       "  --port N     listen on port N (default " <> show defaultPort <> "; 0 = any free port)",
-      "  --no-open    don't open a browser, just print the URL"
+      "  --no-open    don't open a browser, just print the URL",
+      "  --page       print the page (for static hosting) and exit"
     ]
 
 -- | Bind the requested port. Without one, try the default and fall back to

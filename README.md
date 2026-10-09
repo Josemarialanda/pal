@@ -100,13 +100,15 @@ pal❯ Not(True)
 - The editor highlights PAL syntax. Syntax errors are marked on their line, and clicking the message jumps to it.
 - Results are highlighted like the REPL's, and rules are drawn as inference rules.
 - Your program is saved in the browser between visits.
+- The theme menu offers every [Tinted Theming](https://github.com/tinted-theming/schemes) colour scheme (base16, base24 and tinted8, vendored in [`ui/themes/`](ui/themes/)).
 
-| Flag        | Effect                                                     |
-| ----------- | ---------------------------------------------------------- |
-| `--port N`  | Use port `N` (default 7337; any free port if it's taken)   |
-| `--no-open` | Don't open a browser, just print the URL                   |
+| Flag        | Effect                                                       |
+| ----------- | ------------------------------------------------------------ |
+| `--port N`  | Use port `N` (default 7337; any free port if it's taken)     |
+| `--no-open` | Don't open a browser, just print the URL                     |
+| `--page`    | Print the page (themes inlined) and exit, for static hosting |
 
-The page is compiled into the binary, so `pal-ui` is a single self-contained executable. It only listens on `127.0.0.1` and rejects requests for any other host name, so other machines and other websites can't reach it.
+The page and the colour schemes are compiled into the binary, so `pal-ui` is a single self-contained executable. It only listens on `127.0.0.1` and rejects requests for any other host name, so other machines and other websites can't reach it.
 
 A public copy runs at <https://pal-ui.vercel.app> (from `main`) and <https://pal-ui-testing.vercel.app> (from `testing`). Each push to those branches redeploys it: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds `pal-ui` with Nix and uploads it to Vercel, where a small function ([`deploy/vercel/`](deploy/vercel/)) runs it behind `/api/run`.
 

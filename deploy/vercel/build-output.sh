@@ -6,7 +6,7 @@
 # OUT_DIR defaults to .vercel/output. The result is deployed with
 # `vercel deploy --prebuilt`:
 #
-#   static/index.html            the page (ui/static/index.html)
+#   static/index.html            the page, with the themes inlined (pal-ui --page)
 #   functions/api/run.func/      a Node function that runs pal-ui (see run.js)
 #
 # pal-ui is copied with every shared library it links and the dynamic
@@ -17,13 +17,12 @@ set -euo pipefail
 bin="${1:?usage: build-output.sh PAL_UI_BINARY [OUT_DIR]}"
 out="${2:-.vercel/output}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/../.." && pwd)"
 fn="$out/functions/api/run.func"
 
 rm -rf "$out"
 mkdir -p "$out/static" "$fn/api" "$fn/pal/lib"
 
-cp "$root/ui/static/index.html" "$out/static/index.html"
+"$bin" --page >"$out/static/index.html"
 cp "$here/run.js" "$fn/api/run.js"
 
 cp "$bin" "$fn/pal/pal-ui"

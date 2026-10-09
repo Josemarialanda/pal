@@ -168,6 +168,7 @@ executable pal-ui
       Ui.Embed
       Ui.Json
       Ui.Http
+      Ui.Themes
       Ui.Api
   hs-source-dirs:
       ui
@@ -201,6 +202,8 @@ executable pal-ui
   build-depends:
       base >=4.9 && <5
     , bytestring
+    , directory
+    , filepath
     , megaparsec
     , network
     , pal

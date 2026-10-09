@@ -2,7 +2,7 @@
 -- Module      : Ui.Api
 -- Description : Routes and JSON API for the PAL web UI
 --
--- > GET  /               the page (embedded at compile time)
+-- > GET  /               the page (embedded at compile time, with the themes)
 -- > POST /api/run        PAL source in the body → results as JSON
 --
 -- Every run starts from an empty context and checks the whole program, like
@@ -11,7 +11,7 @@
 -- Requests are only accepted with a @Host@ of @127.0.0.1:PORT@ or
 -- @localhost:PORT@, so other websites cannot reach the server through DNS
 -- rebinding.
-module Ui.Api (app, runSource) where
+module Ui.Api (app, page, runSource) where
 
 import Data.List (stripPrefix)
 import qualified Data.List.NonEmpty as NE
@@ -36,18 +36,29 @@ import Types
 import Ui.Embed (embedFile)
 import Ui.Http (Request (..), Response (..), header)
 import Ui.Json (Json (..), encode, object)
+import Ui.Themes (embedThemes)
 
 -- | The page, embedded from @ui/static/index.html@.
 indexHtml :: String
 indexHtml = $(embedFile "ui/static/index.html")
+
+-- | The colour schemes from @ui/themes@, as JSON (see "Ui.Themes").
+themesJson :: String
+themesJson = $(embedThemes "ui/themes")
+
+-- | The page as served: 'indexHtml' with the themes inlined in place of its
+--   @/*THEMES*/[]@ placeholder. @<@ is escaped so the data can't end the
+--   @<script>@ it sits in.
+page :: String
+page = T.unpack (T.replace "/*THEMES*/[]" (T.replace "<" "\\u003c" (T.pack themesJson)) (T.pack indexHtml))
 
 -- | Handle a request. The port is needed to check the @Host@ header.
 app :: Int -> Request -> Response
 app port req
   | not hostAllowed = text 403 "forbidden: unexpected Host header"
   | otherwise = case (reqMethod req, reqPath req) of
-      ("GET", "/") -> html indexHtml
-      ("GET", "/index.html") -> html indexHtml
+      ("GET", "/") -> html page
+      ("GET", "/index.html") -> html page
       ("POST", "/api/run") -> case decodeUtf8' (reqBody req) of
         Left _ -> text 400 "request body must be UTF-8"
         Right src -> json 200 (runSource (T.unpack src))

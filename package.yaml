@@ -87,7 +87,7 @@ executables:
     source-dirs: ui
     main: Main.hs
     other-modules:
-      [Ui.Embed, Ui.Json, Ui.Http, Ui.Api]
+      [Ui.Embed, Ui.Json, Ui.Http, Ui.Themes, Ui.Api]
     dependencies:
       - pal
       - network
@@ -95,5 +95,7 @@ executables:
       - text
       - process
       - template-haskell
+      - directory
+      - filepath
       - megaparsec
     ghc-options: [-threaded]

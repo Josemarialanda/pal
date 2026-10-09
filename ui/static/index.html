@@ -39,6 +39,7 @@
   .logo b span { color: var(--accent); font-family: Georgia, serif; font-style: italic; margin-right: 4px; }
   .logo small { color: var(--muted); }
   label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
+  select.theme { font: 13px var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; max-width: 220px; }
 
   /* Layout */
   main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 0; }
@@ -101,11 +102,44 @@
 
   footer { padding: 6px 18px 10px; color: var(--faint); font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
 </style>
+<script>
+"use strict";
+// Colour schemes from https://github.com/tinted-theming/schemes (ui/themes),
+// inlined by pal-ui: [id, name, "dark" | "light", base00…base0F as 16 × 6 hex digits].
+const THEMES = /*THEMES*/[];
+
+// Map a scheme's base16 slots onto the page's colour variables, or go back
+// to the built-in light/dark colours when id is "" (or no longer exists).
+// Runs before the body is parsed, so the page never flashes the default.
+function applyTheme(id) {
+  const root = document.documentElement.style;
+  const theme = THEMES.find((t) => t[0] === id);
+  const slots = [
+    ["bg", 1], ["panel", 0], ["panel-2", 1], ["border", 2],
+    ["text", 5], ["muted", 4], ["faint", 3],
+    ["accent", 14], ["accent-2", 12], ["ok", 11], ["err", 8],
+    ["kw", 14], ["tycon", 10], ["tyvar", 13], ["con", 5], ["var", 4],
+    ["comment", 3], ["punct", 4], ["rule", 9],
+  ];
+  for (const [name] of slots) root.removeProperty("--" + name);
+  for (const name of ["--ok-bg", "--err-bg", "--shadow", "color-scheme"]) root.removeProperty(name);
+  if (!theme) return;
+  const base = (i) => "#" + theme[3].slice(i * 6, i * 6 + 6);
+  const dark = theme[2] === "dark";
+  for (const [name, i] of slots) root.setProperty("--" + name, base(i));
+  root.setProperty("--ok-bg", `color-mix(in srgb, ${base(11)} 14%, ${base(0)})`);
+  root.setProperty("--err-bg", `color-mix(in srgb, ${base(8)} 14%, ${base(0)})`);
+  root.setProperty("--shadow", dark ? "0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25)" : "0 1px 2px rgba(20, 20, 40, .06), 0 4px 16px rgba(20, 20, 40, .05)");
+  root.setProperty("color-scheme", dark ? "dark" : "light");
+}
+try { applyTheme(localStorage.getItem("pal.theme") || ""); } catch {}
+</script>
 </head>
 <body>
 <header>
   <div class="logo"><b><span>λ</span>PAL</b><small>typechecker sandbox</small></div>
   <label class="toggle"><input type="checkbox" id="showDefs" checked> definitions</label>
+  <select class="theme" id="theme" title="Theme" aria-label="Theme"><option value="">Default</option></select>
 </header>
 
 <main>
@@ -358,6 +392,20 @@ document.body.classList.toggle("hide-defs", !showDefs.checked);
 showDefs.addEventListener("change", () => {
   document.body.classList.toggle("hide-defs", !showDefs.checked);
   store.set("showDefs", showDefs.checked ? "1" : "0");
+});
+
+// One <optgroup> per scheme system (base16, base24, tinted8).
+const themeSelect = $("theme");
+for (const [id, name] of THEMES) {
+  const system = id.split("/")[0];
+  let group = themeSelect.querySelector(`optgroup[label="${system}"]`);
+  if (!group) themeSelect.append(group = Object.assign(document.createElement("optgroup"), { label: system }));
+  group.append(new Option(name, id));
+}
+themeSelect.value = store.get("theme", "");  // "" (Default) if that scheme is gone
+themeSelect.addEventListener("change", () => {
+  applyTheme(themeSelect.value);
+  store.set("theme", themeSelect.value);
 });
 
 src.value = store.get("source", WELCOME);
