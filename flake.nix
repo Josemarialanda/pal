@@ -49,14 +49,15 @@
             '';
           };
 
-          # Build and start the interactive PAL REPL.
-          #   pal-repl                              # empty REPL
-          #   pal-repl examples/programs/stlc.pal   # load files first, then REPL
-          # Files are run in order in one context before the prompt appears
-          # (the same as `pal -i FILE...`). Relative paths are resolved from the
-          # directory you run it in, not from the project root.
-          pal-repl = pkgs.writeShellApplication {
-            name = "pal-repl";
+          # Build the working tree's `pal` (if needed) and run it with the given arguments.
+          #   pal                   # start the REPL
+          #   pal FILE.pal          # typecheck a file
+          #   pal -i FILE.pal       # run a file, then open a REPL with its context
+          #   pal --no-color …      # plain output
+          # Relative paths are resolved from the directory you run it in, not
+          # from the project root.
+          pal = pkgs.writeShellApplication {
+            name = "pal";
             runtimeInputs = [ hspkgs.cabal-install pkgs.hpack pkgs.git ];
             text = ''
               root="$(git rev-parse --show-toplevel)"
@@ -68,14 +69,9 @@
                 cabal build -v0 exe:pal >&2 || exit 1
                 cabal list-bin -v0 exe:pal
               )"
-              if [ "$#" -eq 0 ]; then
-                exec "$pal_bin"
-              else
-                exec "$pal_bin" --interactive "$@"
-              fi
+              exec "$pal_bin" "$@"
             '';
           };
-
           # Build and run the PAL examples.
           #   run-examples                    # run every example (results only)
           #   run-examples dsl                # run a group: code | data | dsl | file
@@ -106,7 +102,7 @@
               hspkgs.hlint
               hspkgs.ormolu
               format
-              pal-repl
+              pal
               run-examples
               pkgs.bashInteractive
               pkgs.hpack

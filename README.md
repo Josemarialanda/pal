@@ -24,11 +24,13 @@ New to type systems? **[Read the tutorial →](TUTORIAL.md)**
 ```sh
 nix develop                              # or let direnv load the shell
 
-pal-repl                                 # interactive REPL
-pal-repl examples/programs/stlc.pal      # REPL with a file preloaded
-cabal run -v0 pal -- FILE.pal            # typecheck a file
+pal                                      # interactive REPL
+pal FILE.pal                             # typecheck a file
+pal -i examples/programs/stlc.pal        # REPL with a file preloaded
 run-examples                             # run every bundled example
 ```
+
+The dev shell's `pal` rebuilds from your working tree first, so it always runs your latest code.
 
 `pal` exits with **1** if any `infer` fails, so it works as a checker in scripts and CI.
 
@@ -143,6 +145,7 @@ Run a program with one of three interpreters:
 
 | Command                   | Does                                       |
 | ------------------------- | ------------------------------------------ |
+| `pal`                     | Build and run `pal`                        |
 | `format` / `nix fmt`      | Format Haskell sources with ormolu         |
 | `format --check`          | Fail if anything is unformatted            |
 | `run-examples`            | Build and run the examples                 |

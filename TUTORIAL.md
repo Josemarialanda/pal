@@ -12,7 +12,7 @@ Learn how type systems work by building some in PAL. Each section adds one idea 
 8. [More type systems](#8-more-type-systems)
 9. [Exercises](#9-exercises)
 
-To follow along, open a REPL with `nix develop` and then `pal-repl`. The [README](README.md) has the full syntax reference.
+To follow along, open a REPL with `nix develop` and then `pal`. The [README](README.md) has the full syntax reference.
 
 ---
 
@@ -288,7 +288,7 @@ Two details:
 
 ## 8. More type systems
 
-The files in [`examples/programs/`](examples/programs/) combine the ideas above into complete, classic type systems. Open any one with `pal-repl examples/programs/NAME.pal`.
+The files in [`examples/programs/`](examples/programs/) combine the ideas above into complete, classic type systems. Open any one with `pal -i examples/programs/NAME.pal`.
 
 | File           | System                          | What's new                                  |
 | -------------- | ------------------------------- | ------------------------------------------- |
@@ -322,7 +322,7 @@ rule Case:
 
 ## 9. Exercises
 
-Start with `pal-repl examples/programs/stlc.pal`, then add rules as you go.
+Start with `pal -i examples/programs/stlc.pal`, then add rules as you go.
 
 1. Add `rule Eq: x : a, y : a -> Eq(x, y) : Bool`. What do `Eq(LitInt, LitInt)` and `Eq(LitInt, True)` give?
 2. Add `expr Nil : List<a>` and a `Cons` rule. Type `Cons(True, Cons(True, Nil))`.
