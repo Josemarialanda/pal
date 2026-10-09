@@ -80,15 +80,16 @@ Each PAL interpreter implements a different “view” of evaluation:
 The `pal` executable runs PAL source directly. You don't need to write any
 Haskell.
 
-The quickest way in is the REPL script. It builds `pal` if needed, then
+The quickest way in is the `pal-repl` command, provided by the dev shell
+(`nix develop`, or automatically with direnv). It builds `pal` if needed, then
 starts the REPL:
 
 ```sh
-./pal-repl.sh                               # empty REPL
-./pal-repl.sh examples/programs/stlc.pal    # load files first, then REPL
+pal-repl                               # empty REPL
+pal-repl examples/programs/stlc.pal    # load files first, then REPL
 ```
 
-The script runs from your current directory, so relative file paths work
+`pal-repl` runs from your current directory, so relative file paths work
 from anywhere. To run files without a REPL, or to pass other options, call
 `pal` through cabal:
 
@@ -480,19 +481,19 @@ The `.pal` files double as a small catalogue of type systems:
 | [`logic.pal`](examples/programs/logic.pal) | Propositional logic via Curry–Howard: `infer` a proof, get its theorem |
 | [`broken.pal`](examples/programs/broken.pal) | A deliberate syntax error |
 
-Run them with the script:
+Run them with the `run-examples` dev-shell command:
 
 ```sh
-./run-examples.sh                    # every example, inference results only
-./run-examples.sh dsl                # one group: code | data | dsl | file
-./run-examples.sh data/pairs         # a single example
-./run-examples.sh --trace dsl/maybe  # full Debug trace with context dumps
-./run-examples.sh --list             # list all examples
+run-examples                    # every example, inference results only
+run-examples dsl                # one group: code | data | dsl | file
+run-examples data/pairs         # a single example
+run-examples --trace dsl/maybe  # full Debug trace with context dumps
+run-examples --list             # list all examples
 ```
 
 You can also run the `.pal` files directly with the [`pal` command](#the-pal-command-io-interpreter)
 (`cabal run -v0 pal -- examples/programs/stlc.pal`), or load them into the
-REPL with `./pal-repl.sh examples/programs/stlc.pal`.
+REPL with `pal-repl examples/programs/stlc.pal`.
 
 For a guided, step-by-step explanation of each example, including derivation
 trees and unification traces, see [TUTORIAL.md](TUTORIAL.md).

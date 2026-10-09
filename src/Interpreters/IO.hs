@@ -36,8 +36,8 @@ import Data.Maybe (catMaybes)
 import qualified Interpreters.Common.Actions as Actions
 import Polysemy (Embed, Members, Sem, embed, interpret, runM)
 import Polysemy.State (State, get, runState)
-import Program (PalAction, runPalAction)
 import Pretty (Style, plain, prettyDefinedExpr, prettyDefinedRule, prettyDefinedType, prettyResult)
+import Program (PalAction, runPalAction)
 import Types (Ctx, Err, Expr, PAL (..), Type)
 
 --------------------------------------------------------------------------------

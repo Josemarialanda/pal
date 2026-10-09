@@ -28,11 +28,14 @@ the first example that needs it:
 
 ## 0. Running the examples
 
+`run-examples` and `pal-repl` are provided by the dev shell (`nix develop`,
+or automatically with direnv).
+
 ```sh
-./run-examples.sh --list             # see what's available
-./run-examples.sh                    # run everything, results only
-./run-examples.sh dsl/logic          # run one example
-./run-examples.sh --trace dsl/logic  # full trace, with the context after every step
+run-examples --list             # see what's available
+run-examples                    # run everything, results only
+run-examples dsl/logic          # run one example
+run-examples --trace dsl/logic  # full trace, with the context after every step
 ```
 
 A result line looks like this:
@@ -49,8 +52,8 @@ REPL, with the `pal` command:
 
 ```sh
 cabal run -v0 pal -- examples/programs/stlc.pal   # run a file
-./pal-repl.sh                                     # start the REPL
-./pal-repl.sh examples/programs/stlc.pal          # REPL with a file already loaded
+pal-repl                                          # start the REPL
+pal-repl examples/programs/stlc.pal               # REPL with a file already loaded
 ```
 
 The REPL is the quickest way to try the exercises in Part 10. Part 11 covers
@@ -918,7 +921,7 @@ chosen by the caller, so inside the body it has one fixed (if unknown) type.
 ## 10. Exercises
 
 Try these in the REPL (Part 11), in a copy of a `.pal` file, or in a
-quasiquote. `./pal-repl.sh examples/programs/stlc.pal` opens a REPL with the STLC
+quasiquote. `pal-repl examples/programs/stlc.pal` opens a REPL with the STLC
 rules already loaded. Answers are at the end.
 
 1. Add a rule `Eq: x : a, y : a -> Eq(x, y) : Bool`. What do
@@ -996,7 +999,7 @@ context so far and returns the updated one.
 
 ### 11.2 Building `dsl/logic` live
 
-Start the REPL with `./pal-repl.sh`, then rebuild Part 3's language one
+Start the REPL with `pal-repl`, then rebuild Part 3's language one
 piece at a time. (The transcripts below are real sessions with the colours
 removed. In your terminal, keywords, types, constructors and variables are
 each highlighted differently.)
@@ -1135,13 +1138,13 @@ a name instead of trying to infer a variable called `type`.
 
 ### 11.4 Experimenting on top of a file
 
-`./pal-repl.sh FILE` (the same as `pal -i FILE`) runs a file and then opens
+`pal-repl FILE` (the same as `pal -i FILE`) runs a file and then opens
 a REPL **with that file's context**. That makes it easy to poke at an
 existing language. For example, here is the monomorphic `Let` from §9.1, reproduced live on top of
 the STLC rules:
 
 ```text
-$ ./pal-repl.sh examples/programs/stlc.pal
+$ pal-repl examples/programs/stlc.pal
 ✓ App(Not, True) :: Bool
 …                                      (the file's own results, then the banner)
 pal❯ Lam(f, App(f, True))
@@ -1246,8 +1249,8 @@ main = do
 The files in [`examples/programs/`](examples/programs/) each define a
 complete, classic type system in PAL. They reuse the ideas from Parts 3–9,
 so this part only points out what is new in each one. Run any of them with
-`./run-examples.sh file/NAME`, or explore one interactively with
-`./pal-repl.sh examples/programs/NAME.pal`.
+`run-examples file/NAME`, or explore one interactively with
+`pal-repl examples/programs/NAME.pal`.
 
 | File | Type system | New idea |
 | ---- | ----------- | -------- |
@@ -1404,7 +1407,7 @@ pal                    REPL: statements, bare expressions, :load :ctx :reset :he
                        (←/→ edit, ↑/↓ history, Ctrl-R search, Ctrl-C discard input)
 pal -i FILE...         run files, then a REPL with their context
 pal --no-color …       plain output (also when piped, or with NO_COLOR set)
-./pal-repl.sh [FILE...] build pal and start the REPL (loading FILEs first, like -i)
+pal-repl [FILE...]     build pal and start the REPL (loading FILEs first, like -i)
 ```
 
 | Error              | Meaning                                                          |

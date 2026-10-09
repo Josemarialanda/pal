@@ -48,6 +48,50 @@
               ormolu --mode "$mode" "''${files[@]}"
             '';
           };
+
+          # Build and start the interactive PAL REPL.
+          #   pal-repl                              # empty REPL
+          #   pal-repl examples/programs/stlc.pal   # load files first, then REPL
+          # Files are run in order in one context before the prompt appears
+          # (the same as `pal -i FILE...`). Relative paths are resolved from the
+          # directory you run it in, not from the project root.
+          pal-repl = pkgs.writeShellApplication {
+            name = "pal-repl";
+            runtimeInputs = [ hspkgs.cabal-install pkgs.hpack pkgs.git ];
+            text = ''
+              root="$(git rev-parse --show-toplevel)"
+              # Build from the project root, but keep the caller's working directory
+              # so relative file arguments still point where the user meant.
+              pal_bin="$(
+                cd "$root"
+                hpack >/dev/null
+                cabal build -v0 exe:pal >&2 || exit 1
+                cabal list-bin -v0 exe:pal
+              )"
+              if [ "$#" -eq 0 ]; then
+                exec "$pal_bin"
+              else
+                exec "$pal_bin" --interactive "$@"
+              fi
+            '';
+          };
+
+          # Build and run the PAL examples.
+          #   run-examples                    # run every example (results only)
+          #   run-examples dsl                # run a group: code | data | dsl | file
+          #   run-examples data/pairs         # run a single example
+          #   run-examples --trace dsl/maybe  # full Debug trace with context dumps
+          #   run-examples --list             # list available examples
+          run-examples = pkgs.writeShellApplication {
+            name = "run-examples";
+            runtimeInputs = [ hspkgs.cabal-install pkgs.hpack pkgs.git ];
+            text = ''
+              cd "$(git rev-parse --show-toplevel)"
+              hpack >/dev/null
+              cabal build -v0 exe:pal-examples
+              exec cabal run -v0 exe:pal-examples -- "$@"
+            '';
+          };
         in
         {
           formatter = format;
@@ -62,6 +106,8 @@
               hspkgs.hlint
               hspkgs.ormolu
               format
+              pal-repl
+              run-examples
               pkgs.bashInteractive
               pkgs.hpack
             ];

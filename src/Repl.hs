@@ -199,7 +199,6 @@ parseInput src =
     startsWithKeyword =
       takeWhile isAlphaNum (dropWhile isSpace src) `elem` ["type", "expr", "rule", "infer"]
 
-
 --------------------------------------------------------------------------------
 
 -- | Commands
