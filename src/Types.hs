@@ -11,11 +11,9 @@
 --
 -- It contains the following key components:
 --
--- * **Type representation** ('Type') — algebraic and polymorphic types
---   expressed as constructors ('TCon') and variables ('TVar').
---
--- * **Expression representation** ('Expr') — the syntactic structure of
---   PAL programs, including variables and constructed expressions.
+-- * **Term representation** ('Term') — expressions and types, built from
+--   constructors ('Con') and variables ('Var'). 'Expr' and 'Type' are the
+--   names of a term in expression position and in type position.
 --
 -- * **Declarations** ('TypeDecl', 'ExprDecl') — user-defined base types and
 --   expression signatures that populate the global context.
@@ -56,48 +54,76 @@ import Polysemy (makeSem)
 
 --------------------------------------------------------------------------------
 
--- | Core type representation
+-- | Terms: expressions and types
 
 --------------------------------------------------------------------------------
 
--- | Represents a type in a PAL program.
---   A type can either be:
---     * 'TVar' — a type variable (e.g. a polymorphic placeholder like "a")
---     * 'TCon' — a concrete type constructor, optionally parameterized
---       by other types (e.g. Num, Bool, List<Num>).
-data Type
-  = TCon String [Type]
-  | TVar String
-  deriving (Eq, Lift)
+-- | A term of a PAL program. Expressions and types are both terms, so a type
+--   can mention an expression (e.g. @Vec(n, a)@), and rules can check a type
+--   like any other term (e.g. @Pi(x, t, u) : Type@). A term is:
+--
+--     * 'Var' — a variable (e.g. @x@, or a type variable like @a@);
+--     * 'Con' — a constructor applied to its arguments (e.g. @Add(x, y)@,
+--       @True@, @List<Num>@). @C(…)@ and @C<…>@ are the same term: the
+--       'Brackets' only remember how to show it;
+--     * 'Subst' — a substitution @body[x := e]@, which inference applies
+--       when it knows the body.
+data Term
+  = Var String
+  | Con Brackets String [Term]
+  | -- | @Subst body var replacement@ is @body[var := replacement]@.
+    Subst Term Term Term
+  deriving (Lift)
 
-instance Show Type where
+-- | The brackets around the arguments of a constructor: @C(…)@ or @C<…>@.
+data Brackets = Parens | Angles
+  deriving (Eq, Show, Lift)
+
+-- | Equality of terms ignores the 'Brackets'.
+instance Eq Term where
+  Var a == Var b = a == b
+  Con _ m as == Con _ n bs = m == n && as == bs
+  Subst a x e == Subst b y f = a == b && x == y && e == f
+  _ == _ = False
+
+-- | A term in type position (the right side of @e : T@).
+type Type = Term
+
+-- | A term in expression position (the left side of @e : T@).
+type Expr = Term
+
+pattern TVar, EVar :: String -> Term
+pattern TVar v = Var v
+pattern EVar v = Var v
+
+-- | A constructor in type position. It is shown as @C\<…\>@.
+pattern TCon :: String -> [Term] -> Term
+pattern TCon n ts <- Con _ n ts
+  where
+    TCon n ts = Con Angles n ts
+
+-- | A constructor in expression position. It is shown as @C(…)@.
+pattern ECon :: String -> [Term] -> Term
+pattern ECon n ts <- Con _ n ts
+  where
+    ECon n ts = Con Parens n ts
+
+{-# COMPLETE TVar, TCon, Subst #-}
+
+{-# COMPLETE EVar, ECon, Subst #-}
+
+{-# COMPLETE TVar, Con, Subst #-}
+
+{-# COMPLETE EVar, Con, Subst #-}
+
+-- | Shows each constructor with its own brackets, e.g. @Vec(n, List<a>)@.
+instance Show Term where
   show = \case
-    TVar v -> v
-    TCon name [] -> name
-    TCon name ts ->
-      name <> "<" <> intercalate ", " (fmap show ts) <> ">"
-
---------------------------------------------------------------------------------
-
--- | Expression representation
-
---------------------------------------------------------------------------------
-
--- | Represents an expression in a PAL program.
---   * 'EVar' represents a variable (e.g. "x", "y").
---   * 'ECon' represents a constructed expression or term, optionally applied
---     to subexpressions (e.g. Add(x, y), True, LitInt).
-data Expr
-  = EVar String
-  | ECon String [Expr]
-  deriving (Eq, Lift)
-
-instance Show Expr where
-  show = \case
-    EVar v -> v
-    ECon name [] -> name
-    ECon name es ->
-      name <> "(" <> intercalate ", " (fmap show es) <> ")"
+    Var v -> v
+    Con _ name [] -> name
+    Con Parens name ts -> name <> "(" <> intercalate ", " (fmap show ts) <> ")"
+    Con Angles name ts -> name <> "<" <> intercalate ", " (fmap show ts) <> ">"
+    Subst body x e -> show body <> "[" <> show x <> " := " <> show e <> "]"
 
 --------------------------------------------------------------------------------
 
@@ -136,8 +162,29 @@ instance Show ExprDecl where
 
 --------------------------------------------------------------------------------
 
--- | A single premise of a typing rule: a judgment @e : t@, optionally made
---   under hypotheses that bring variables into scope.
+-- | The direction of a judgment (bidirectional typing):
+--
+--   * 'Plain' — @e : T@. In a premise, @e@ is checked against @T@ (which
+--     falls back to inference for a rule without a direction). A rule
+--     with a plain conclusion is used in both directions.
+--   * 'Synthesis' — @e => T@. In a premise, the type of @e@ is inferred.
+--     A rule with this conclusion infers its type, like a plain one.
+--   * 'Checking' — @e <= T@. In a premise, @e@ is checked against @T@. A
+--     rule with this conclusion is used only when the expected type is
+--     known: PAL unifies the expected type with @T@ before the premises.
+data Mode = Plain | Synthesis | Checking
+  deriving (Eq, Show, Lift)
+
+-- | The symbol of a mode: @:@, @=>@ or @<=@.
+modeSymbol :: Mode -> String
+modeSymbol = \case
+  Plain -> ":"
+  Synthesis -> "=>"
+  Checking -> "<="
+
+-- | A single premise of a typing rule: a judgment @e : t@ (or @e => t@,
+--   @e <= t@, see 'Mode'), optionally made under hypotheses that bring
+--   variables into scope.
 --
 --   For example, the premise of a lambda rule
 --
@@ -146,15 +193,24 @@ instance Show ExprDecl where
 --   says that @body@ has type @b@ when @x@ is assumed to have type @a@.
 --   Hypothesis expressions must be pattern variables that are bound to
 --   variables in the target expression (the binders).
-data Premise = Premise
-  { premise'hypotheses :: [Hypothesis],
+data Premise = PremiseWith
+  { premise'mode :: Mode,
+    premise'hypotheses :: [Hypothesis],
     premise'judgment :: (Expr, Type)
   }
   deriving (Eq, Lift)
 
+-- | A premise with a plain judgment @e : t@.
+pattern Premise :: [Hypothesis] -> (Expr, Type) -> Premise
+pattern Premise hs j <- PremiseWith _ hs j
+  where
+    Premise hs j = PremiseWith Plain hs j
+
+{-# COMPLETE Premise #-}
+
 instance Show Premise where
-  show (Premise [] j) = showJudgment j
-  show (Premise hs j) = intercalate ", " (fmap show hs) <> " ⊢ " <> showJudgment j
+  show (PremiseWith m [] j) = showJudgmentWith m j
+  show (PremiseWith m hs j) = intercalate ", " (fmap show hs) <> " ⊢ " <> showJudgmentWith m j
 
 -- | A hypothesis @x : t@ that brings a variable into scope for one premise.
 --
@@ -194,7 +250,11 @@ instance Show Scheme where
   show (Forall vs t) = "∀" <> unwords vs <> ". " <> show t
 
 showJudgment :: (Expr, Type) -> String
-showJudgment (e, t) = show e <> " : " <> show t
+showJudgment = showJudgmentWith Plain
+
+-- | A judgment with the symbol of its mode, e.g. @Lam(x, b) <= Arrow<a, b>@.
+showJudgmentWith :: Mode -> (Expr, Type) -> String
+showJudgmentWith m (e, t) = show e <> " " <> modeSymbol m <> " " <> show t
 
 -- | A 'TypingRule' encodes a single typing judgment in a PAL program.
 --   Each rule consists of:
@@ -208,21 +268,60 @@ showJudgment (e, t) = show e <> " : " <> show t
 --       y : Num
 --     —
 --       Add(x, y) : Num
-data TypingRule = TypingRule
+data TypingRule = TypingRuleWith
   { typingRule'name :: String,
     typingRule'premises :: [Premise],
-    typingRule'ruleConclusion :: (Expr, Type)
+    typingRule'ruleConclusion :: (Expr, Type),
+    -- | The direction of the conclusion (see 'Mode').
+    typingRule'mode :: Mode
   }
   deriving (Eq, Lift)
 
+-- | A rule with a plain conclusion @C(…) : T@.
+pattern TypingRule :: String -> [Premise] -> (Expr, Type) -> TypingRule
+pattern TypingRule name premises conclusion <- TypingRuleWith name premises conclusion _
+  where
+    TypingRule name premises conclusion = TypingRuleWith name premises conclusion Plain
+
+{-# COMPLETE TypingRule #-}
+
 instance Show TypingRule where
-  show (TypingRule name premises conclusion) =
+  show (TypingRuleWith name premises conclusion mode) =
     unlines $
       [name <> ":"]
         <> fmap (("  " <>) . show) premises
         <> [ "—",
-             "  " <> showJudgment conclusion
+             "  " <> showJudgmentWith mode conclusion
            ]
+
+-- | A reduction @reduce Name: lhs ~> rhs@: a term that matches @lhs@ is
+--   definitionally equal to @rhs@, with the variables of @lhs@ replaced. For
+--   example, β-reduction:
+--
+--   > reduce Beta: App(Lam(x, t, body), a) ~> body[x := a]
+--
+--   Unification uses the reductions to compare types up to computation.
+data Reduction = Reduction
+  { reduction'name :: String,
+    reduction'lhs :: Term,
+    reduction'rhs :: Term
+  }
+  deriving (Eq, Lift)
+
+instance Show Reduction where
+  show (Reduction name lhs rhs) = name <> ": " <> show lhs <> " ~> " <> show rhs
+
+-- | A definition @def Name := body@: a name for a closed term. PAL infers
+--   the type of the body; then @Name@ is a constant of that type that
+--   reduces to the body.
+data TermDef = TermDef
+  { termDef'name :: String,
+    termDef'body :: Term
+  }
+  deriving (Eq, Lift)
+
+instance Show TermDef where
+  show (TermDef name body) = "def " <> name <> " := " <> show body
 
 --------------------------------------------------------------------------------
 
@@ -236,6 +335,8 @@ instance Show TypingRule where
 --     * 'ctx'types' — the known type constructors.
 --     * 'ctx'exprs' — base expressions and their declared types.
 --     * 'ctx'rules' — user-defined typing rules.
+--     * 'ctx'reductions' — user-defined reductions (definitional equality).
+--     * 'ctx'values' — patterns of the values, for the progress test.
 --     * 'ctx'env'   — local variable bindings (type schemes), introduced by rule hypotheses
 --                     (e.g. a lambda's parameter) while checking a premise.
 --
@@ -245,6 +346,8 @@ data Ctx = Ctx
   { ctx'types :: [TypeDecl],
     ctx'exprs :: [ExprDecl],
     ctx'rules :: [TypingRule],
+    ctx'reductions :: [Reduction],
+    ctx'values :: [Term],
     ctx'env :: Map String Scheme
   }
 
@@ -258,12 +361,17 @@ instance Show Ctx where
         indent (unlines (fmap showExprName ctx'exprs)),
         "Rules:",
         indent (unlines (fmap showRuleName ctx'rules)),
+        "Reductions:",
+        indent (unlines (fmap showRuleName ctx'reductions)),
+        "Values:",
+        indent (unlines (fmap showRuleName ctx'values)),
         "Env:",
         indent (unlines (fmap showEnvBinding (M.toList ctx'env)))
       ]
     where
       showTypeName td = "- " <> show td
       showExprName ed = "- " <> show ed
+      showRuleName :: (Show a) => a -> String
       showRuleName tr = "- " <> show tr
       showEnvBinding (k, v) = k <> " :: " <> show v
       indent = unlines . fmap ("  " <>) . lines
@@ -274,6 +382,8 @@ instance Semigroup Ctx where
       { ctx'types = ctx'types c1 <> ctx'types c2,
         ctx'exprs = ctx'exprs c1 <> ctx'exprs c2,
         ctx'rules = ctx'rules c1 <> ctx'rules c2,
+        ctx'reductions = ctx'reductions c1 <> ctx'reductions c2,
+        ctx'values = ctx'values c1 <> ctx'values c2,
         ctx'env = ctx'env c1 <> ctx'env c2
       }
 
@@ -283,6 +393,8 @@ instance Monoid Ctx where
       { ctx'types = mempty,
         ctx'exprs = mempty,
         ctx'rules = mempty,
+        ctx'reductions = mempty,
+        ctx'values = mempty,
         ctx'env = mempty
       }
 
@@ -300,6 +412,17 @@ data Err
   | NoRuleMatched Expr
   | -- | A type variable would have to contain itself (e.g. @a ~ Arrow<a, b>@).
     InfiniteType Type Type
+  | -- | Reductions applied to a term did not stop within the step limit.
+    ReductionLimit Term
+  | -- | A substitution @u[x := e]@ whose body @u@ is still unknown, so it
+    --   cannot be applied (PAL does no higher-order unification).
+    StuckSubstitution Term
+  | -- | A term whose rules only check it against a known type was used
+    --   where its type must be inferred.
+    CannotInfer Expr
+  | -- | A solution would use a variable outside its binder: the variable,
+    --   and the solution.
+    ScopeEscape String Type
   | CustomErr String
   deriving (Eq)
 
@@ -310,6 +433,10 @@ instance Show Err where
     InfiniteType v t -> "[Error] " <> "Infinite type: " <> show v <> " ~ " <> show t
     ArityMismatch e g -> "[Error] " <> "Arity mismatch: expected " <> show e <> " arg(s), got " <> show g
     NoRuleMatched e -> "[Error] " <> "No typing rule matched for → " <> show e
+    ReductionLimit t -> "[Error] " <> "Reduction limit: " <> show t <> " does not stop reducing"
+    StuckSubstitution t -> "[Error] " <> "Stuck substitution: " <> show t <> " (its body is not known)"
+    CannotInfer e -> "[Error] " <> "Cannot infer the type of " <> show e <> ": its rule only checks it against a known type"
+    ScopeEscape x t -> "[Error] " <> "Scope error: " <> x <> " escapes its binder in " <> show t
     CustomErr msg -> "[Error] " <> msg
 
 -- | One failed check during inference, with where and why it happened.
@@ -380,18 +507,73 @@ data Derivation = Derivation
 
 --------------------------------------------------------------------------------
 
--- | What a program expects of an expression: @check e : T@ or @fails e@.
+-- | What a program expects: @check e : T@, @fails e@ or @find T@.
 data Expectation
   = -- | Inference succeeds with this type (up to renaming of type variables).
     ExpectType Expr Type
   | -- | Inference fails.
     ExpectFailure Expr
+  | -- | Some closed term has this type (proof search): @find T@.
+    ExpectInhabited Type
   deriving (Eq, Lift)
 
 instance Show Expectation where
   show = \case
     ExpectType e t -> "check " <> show e <> " : " <> show t
     ExpectFailure e -> "fails " <> show e
+    ExpectInhabited t -> "find " <> show t
+
+--------------------------------------------------------------------------------
+
+-- | Metatheory tests
+
+--------------------------------------------------------------------------------
+
+-- | A property of the whole type system that PAL can test on generated
+--   terms (see "Interpreters.Common.Metatheory").
+data MetaProperty
+  = -- | Reduction keeps the type: if @e : T@ and @e@ reduces to @e'@ in one
+    --   step, then @e' : T@.
+    Preservation
+  | -- | A well-typed term that does not reduce is a value.
+    Progress
+  deriving (Eq, Show, Lift)
+
+-- | A test statement: @test preservation@ or @test progress@, with the
+--   number of terms to generate.
+data TestSpec = TestSpec
+  { testSpec'property :: MetaProperty,
+    testSpec'terms :: Int
+  }
+  deriving (Eq, Lift)
+
+instance Show TestSpec where
+  show (TestSpec p n) = "test " <> propertyName p <> " " <> show n
+
+-- | The name of a property, as it is written in a program.
+propertyName :: MetaProperty -> String
+propertyName = \case
+  Preservation -> "preservation"
+  Progress -> "progress"
+
+-- | The result of a test.
+data TestResult = TestResult
+  { test'spec :: TestSpec,
+    -- | The well-typed terms that were checked.
+    test'checked :: Int,
+    -- | The smallest counterexample, if any.
+    test'counterexample :: Maybe Counterexample
+  }
+  deriving (Eq, Show)
+
+-- | Why a property does not hold.
+data Counterexample
+  = -- | @e : T@ reduces to @e'@, which has the given type (not as general
+    --   as @T@) or an error.
+    NotPreserved Expr Type Expr (Either Err Type)
+  | -- | @e : T@ does not reduce, and it is not a value.
+    Stuck Expr Type
+  deriving (Eq, Show)
 
 --------------------------------------------------------------------------------
 
@@ -406,6 +588,8 @@ instance Show Expectation where
 --     * 'DefineType' — add a new type declaration to the context.
 --     * 'DefineExpr' — register a new expression with its declared type.
 --     * 'DefineRule' — introduce a new typing rule.
+--     * 'DefineReduction' — introduce a new reduction (definitional equality).
+--     * 'DefineTerm' — define a name for a term (@def Name := body@).
 --     * 'Infer'      — perform type inference for a given expression.
 --     * 'Expect'     — check an expectation (@check e : T@ or @fails e@);
 --                      'True' when it is met.
@@ -419,8 +603,12 @@ data PAL m a where
   DefineType :: TypeDecl -> PAL m ()
   DefineExpr :: ExprDecl -> PAL m ()
   DefineRule :: TypingRule -> PAL m ()
+  DefineReduction :: Reduction -> PAL m ()
+  DefineValue :: Term -> PAL m ()
+  DefineTerm :: TermDef -> PAL m ()
   Infer :: Expr -> PAL m (Either Err Type)
   Expect :: Expectation -> PAL m Bool
+  Test :: TestSpec -> PAL m Bool
 
 -- | Generate convenient smart constructors (e.g. 'defineType', 'infer')
 --   for use inside PAL programs.

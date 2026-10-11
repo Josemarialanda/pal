@@ -29,6 +29,7 @@ default-extensions: [
     TypeApplications,
     RecordWildCards,
     OverloadedStrings,
+    PatternSynonyms,
     PolyKinds,
     FlexibleContexts,
     ConstraintKinds,
@@ -55,9 +56,9 @@ language: Haskell2010
 library:
   source-dirs: src
   exposed-modules:
-    [PAL, Types, Program, Pretty, Report, Repl, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
+    [PAL, Types, Program, Pretty, Report, Repl, Interpreters.Common.Actions, Interpreters.Common.Expectations, Interpreters.Common.Metatheory, Interpreters.Common.Search, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
   other-modules:
-    [Interpreters.Common.Actions, Utils.OneOfN]
+    [Utils.OneOfN]
   dependencies:
     - free
     - containers
@@ -99,3 +100,13 @@ executables:
       - filepath
       - megaparsec
     ghc-options: [-threaded]
+
+tests:
+  pal-properties:
+    source-dirs: tests/properties
+    main: Main.hs
+    dependencies:
+      - pal
+      - QuickCheck
+      - megaparsec
+      - containers

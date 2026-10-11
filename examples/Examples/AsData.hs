@@ -9,12 +9,16 @@ module Examples.AsData (examples) where
 import Examples.Types (Example, pureExample)
 import PAL (PalAction (..), runPalActions)
 import Types
-  ( Expr (..),
+  ( Expr,
     ExprDecl (..),
-    Type (..),
+    Type,
     TypeDecl (..),
-    TypingRule (..),
     premise,
+    pattern ECon,
+    pattern EVar,
+    pattern TCon,
+    pattern TVar,
+    pattern TypingRule,
   )
 
 examples :: [Example]

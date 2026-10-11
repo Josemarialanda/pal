@@ -1,0 +1,58 @@
+-- Counterexamples to preservation and progress, and malformed values.
+
+type Bool
+type Arrow<a, b>
+type Prod<a, b>
+
+expr True  : Bool
+expr False : Bool
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Prod<a, b>
+
+rule Fst:
+  p : Prod<a, b>
+->
+  Fst(p) : a
+
+rule Snd:
+  p : Prod<a, b>
+->
+  Snd(p) : b
+
+reduce Beta:    App(Lam(x, body), a) ~> body[x := a]
+reduce FstPair: Fst(Pair(a, b)) ~> b   -- wrong: Fst gives the second part
+reduce SndPair: Snd(Pair(a, b)) ~> b
+
+value True
+value False
+value Lam(x, body)
+value Pair(a, b)
+
+test preservation
+
+-- Without a reduction for Not, Not(True) is stuck.
+rule Not:
+  b : Bool
+->
+  Not(b) : Bool
+
+test progress
+
+-- Malformed value patterns.
+value x
+value Missing(y)

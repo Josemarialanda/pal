@@ -1,0 +1,132 @@
+-- Dependent types: indexed families, Π-types, substitution, α-equivalence
+-- and conversion with reductions.
+
+expr Type : Type
+expr Nat  : Type
+expr Zero : Nat
+
+rule Succ:
+  n : Nat
+->
+  Succ(n) : Nat
+
+rule Plus:
+  m : Nat
+  n : Nat
+->
+  Plus(m, n) : Nat
+
+reduce PlusZero: Plus(Zero, n) ~> n
+reduce PlusSucc: Plus(Succ(m), n) ~> Succ(Plus(m, n))
+
+-- Indexed families: the type mentions the expression's arguments.
+rule Vec:
+  n : Nat
+  a : Type
+->
+  Vec(n, a) : Type
+
+expr VNil : Vec(Zero, a)
+
+rule VCons:
+  x  : a
+  xs : Vec(n, a)
+->
+  VCons(x, xs) : Vec(Succ(n), a)
+
+rule Replicate:
+  n : Nat
+  x : a
+->
+  Replicate(n, x) : Vec(n, a)
+
+rule Append:
+  xs : Vec(m, a)
+  ys : Vec(n, a)
+->
+  Append(xs, ys) : Vec(Plus(m, n), a)
+
+check Replicate(Succ(Zero), Zero) : Vec(Succ(Zero), Nat)
+check VCons(Zero, VCons(Zero, VNil)) : Vec(Succ(Succ(Zero)), Nat)
+check Append(VCons(Zero, VNil), VCons(Zero, VNil)) : Vec(Succ(Succ(Zero)), Nat)
+
+-- Π-types. PAL reads from the rules that Pi and Lam bind x in their body.
+rule Pi:
+  t : Type
+  x : t |- u : Type
+->
+  Pi(x, t, u) : Type
+
+rule Lam:
+  t : Type
+  x : t |- body : u
+->
+  Lam(x, t, body) : Pi(x, t, u)
+
+rule App:
+  f : Pi(x, t, u)
+  a : t
+->
+  App(f, a) : u[x := a]
+
+reduce Beta: App(Lam(x, t, body), a) ~> body[x := a]
+
+check Pi(n, Nat, Vec(n, Nat)) : Type
+check Lam(n, Nat, Replicate(n, Zero)) : Pi(n, Nat, Vec(n, Nat))
+check App(Lam(n, Nat, Replicate(n, Zero)), Succ(Zero)) : Vec(Succ(Zero), Nat)
+
+-- Polymorphism as a Π over Type.
+check Lam(a, Type, Lam(x, a, x)) : Pi(a, Type, Pi(x, a, a))
+check App(App(Lam(a, Type, Lam(x, a, x)), Nat), Zero) : Nat
+fails App(App(Lam(a, Type, Lam(x, a, x)), Nat), Nat)
+
+-- α-equivalence: the names of bound variables do not matter.
+check Lam(n, Nat, Replicate(n, Zero)) : Pi(m, Nat, Vec(m, Nat))
+check App(Lam(f, Pi(m, Nat, Vec(m, Nat)), f), Lam(n, Nat, Replicate(n, Zero))) : Pi(k, Nat, Vec(k, Nat))
+
+-- Substitution does not capture: y is renamed in Pi(y, x, x)[x := y].
+check Lam(y, Type, App(Lam(x, Type, Lam(z, Pi(y, x, x), z)), y)) : Pi(a, Type, Pi(z, Pi(b, a, a), Pi(c, a, a)))
+
+-- Conversion: types are equal up to reductions.
+check App(Lam(v, Vec(Succ(Succ(Zero)), Nat), v), Append(VCons(Zero, VNil), VCons(Zero, VNil))) : Vec(Succ(Succ(Zero)), Nat)
+check App(Lam(v, App(Lam(n, Nat, Vec(n, Nat)), Zero), v), VNil) : Vec(Zero, Nat)
+fails App(Lam(v, Vec(Succ(Zero), Nat), v), Append(VCons(Zero, VNil), VCons(Zero, VNil)))
+
+-- Postponement: the first premise needs u, which only the second premise
+-- solves. PAL waits for u, then checks y.
+rule ApplyLater:
+  y : u[x := Zero]
+  f : Pi(x, Nat, u)
+->
+  ApplyLater(f, y) : Nat
+
+check ApplyLater(Lam(n, Nat, Replicate(n, Zero)), Replicate(Zero, Zero)) : Nat
+fails ApplyLater(Lam(n, Nat, Replicate(n, Zero)), Replicate(Succ(Zero), Zero))
+
+-- Scopes: a result type can mention x only where x is bound, as in
+-- u[x := value]. A result type that does not mention x is fine anywhere.
+rule Let:
+  value : t
+  x : t |- body : u
+->
+  Let(x, value, body) : u[x := value]
+
+rule Weird:
+  t : Type
+  x : t |- body : u
+->
+  Weird(x, t, body) : u
+
+check Let(k, Succ(Zero), Replicate(k, Zero)) : Vec(Succ(Zero), Nat)
+check Weird(n, Nat, Zero) : Nat
+fails Weird(n, Nat, Replicate(n, Zero))
+
+-- Definitions: a name for a term. It unfolds where types must be equal.
+def One  := Succ(Zero)
+def Two  := Succ(One)
+def Vec2 := Vec(Two, Nat)
+def Id   := Lam(a, Type, Lam(x, a, x))
+
+check Replicate(Two, Zero) : Vec(Succ(Succ(Zero)), Nat)
+check Lam(v, Vec2, v) : Pi(v, Vec(Succ(Succ(Zero)), Nat), Vec(Succ(Succ(Zero)), Nat))
+check App(App(Id, Nat), Two) : Nat

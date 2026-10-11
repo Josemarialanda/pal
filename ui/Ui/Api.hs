@@ -15,7 +15,7 @@ module Ui.Api (app, page, runSource) where
 
 import Data.List (stripPrefix)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import Parser.Parser (palProgramLocated)
@@ -24,7 +24,8 @@ import Program (Outcome (..), PalAction (..), Step (..), fromStmt, runSteps)
 import Report (derivationLatex)
 import Text.Megaparsec (ParseErrorBundle (..), errorBundlePretty, errorOffset, parse, parseErrorTextPretty)
 import Types
-  ( Derivation (..),
+  ( Counterexample (..),
+    Derivation (..),
     Diagnostic (..),
     Err,
     Expectation (..),
@@ -34,13 +35,20 @@ import Types
     Frame (..),
     Hypothesis (..),
     Justification (..),
+    Mode,
     Premise (..),
+    Reduction (..),
     Severity (..),
+    TermDef (..),
+    TestResult (..),
+    TestSpec (..),
     Type,
     TypeDecl (..),
     TypingRule (..),
+    modeSymbol,
+    propertyName,
   )
-import Ui.Embed (embedFile)
+import Ui.Embed (embedExamples, embedFile)
 import Ui.Http (Request (..), Response (..), header)
 import Ui.Json (Json (..), encode, object)
 import Ui.Themes (embedThemes)
@@ -53,11 +61,19 @@ indexHtml = $(embedFile "ui/static/index.html")
 themesJson :: String
 themesJson = $(embedThemes "ui/themes")
 
--- | The page as served: 'indexHtml' with the themes inlined in place of its
---   @/*THEMES*/[]@ placeholder. @<@ is escaped so the data can't end the
---   @<script>@ it sits in.
+-- | The example programs from @examples/programs@, as JSON (see
+--   'embedExamples'), in the order of the README.
+examplesJson :: String
+examplesJson = $(embedExamples "examples/programs" ["arith", "stlc", "stlc-ext", "lists", "hm", "logic", "lambda-pi"])
+
+-- | The page as served: 'indexHtml' with the themes and the examples
+--   inlined in place of its @/*THEMES*/[]@ and @/*EXAMPLES*/[]@
+--   placeholders. @<@ is escaped so the data can't end the @<script>@ it
+--   sits in.
 page :: String
-page = T.unpack (T.replace "/*THEMES*/[]" (T.replace "<" "\\u003c" (T.pack themesJson)) (T.pack indexHtml))
+page = T.unpack (inline "/*EXAMPLES*/[]" examplesJson (inline "/*THEMES*/[]" themesJson (T.pack indexHtml)))
+  where
+    inline placeholder value = T.replace placeholder (T.replace "<" "\\u003c" (T.pack value))
 
 -- | Handle a request. The port is needed to check the @Host@ header.
 app :: Int -> Request -> Response
@@ -142,6 +158,20 @@ item (Step located outcome) = object (("start", JNumber (loc'start located)) : f
         [("kind", JString "type"), ("name", JString n), ("args", JArray (fmap JString args))] <> definition
       (ADefineExpr (ExprDecl n t), _) ->
         [("kind", JString "expr"), ("name", JString n), ("type", showJ t)] <> definition
+      (ADefineReduction rd, _) ->
+        [("kind", JString "reduce"), ("name", JString (reduction'name rd)), ("text", showJ rd)] <> definition
+      (ADefineTerm d, _) ->
+        [("kind", JString "def"), ("name", JString (termDef'name d)), ("text", showJ d)] <> definition
+      (ADefineValue v, _) ->
+        [("kind", JString "value"), ("text", showJ v)] <> definition
+      (ATest spec, Tested (TestResult _ checked counterexample)) ->
+        [ ("kind", JString "test"),
+          ("text", showJ spec),
+          ("property", JString (propertyName (testSpec'property spec))),
+          ("checked", JNumber checked),
+          ("ok", JBool (isNothing counterexample))
+        ]
+          <> [("counterexample", counterexampleJson c) | Just c <- [counterexample]]
       (ADefineRule tr, _) ->
         [("kind", JString "rule"), ("rule", rule tr)] <> definition
       (AInfer e, Inferred result) ->
@@ -152,6 +182,9 @@ item (Step located outcome) = object (("start", JNumber (loc'start located)) : f
           <> [("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
       (AExpect x@(ExpectFailure e), Expected _ _ result met) ->
         [("kind", JString "fails"), ("expr", showJ e), ("text", showJ x)] <> withoutOk (inference result) <> [("ok", JBool met)]
+      (AExpect x@(ExpectInhabited t), Expected _ diagnostics result met) ->
+        [("kind", JString "find"), ("expected", showJ t), ("text", showJ x), ("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
+          <> either (\fs -> [("error", JString (errMessage (failure'err (NE.head fs))))]) (\d -> [("term", showJ (deriv'expr d)), ("derivation", derivation d), ("latex", JString (derivationLatex d))]) result
       (action, _) -> [("kind", JString "unknown"), ("text", JString (show action))]
 
     definition = case outcome of
@@ -206,19 +239,19 @@ derivation (Derivation e t by assumptions premises) =
 
 -- | A rule, with each part as text (the page highlights the syntax).
 rule :: TypingRule -> Json
-rule (TypingRule name premises conclusion) =
+rule (TypingRuleWith name premises conclusion mode) =
   object
     [ ("name", JString name),
       ("premises", JArray (fmap premise premises)),
-      ("conclusion", judgment conclusion)
+      ("conclusion", judgment mode conclusion)
     ]
   where
-    premise (Premise hyps j) =
-      object [("hypotheses", JArray (fmap hypothesis hyps)), ("judgment", judgment j)]
+    premise (PremiseWith m hyps j) =
+      object [("hypotheses", JArray (fmap hypothesis hyps)), ("judgment", judgment m j)]
     hypothesis (Hypothesis e t g) =
       object [("expr", showJ e), ("type", showJ t), ("gen", JBool g)]
-    judgment :: (Expr, Type) -> Json
-    judgment (e, t) = object [("expr", showJ e), ("type", showJ t)]
+    judgment :: Mode -> (Expr, Type) -> Json
+    judgment m (e, t) = object [("expr", showJ e), ("type", showJ t), ("mode", JString (modeSymbol m))]
 
 showJ :: (Show a) => a -> Json
 showJ = JString . show
@@ -229,3 +262,13 @@ errMessage err = let s = show err in fromMaybe s (stripPrefix "[Error] " s)
 
 trimEnd :: String -> String
 trimEnd = reverse . dropWhile (`elem` ['\n', ' ']) . reverse
+
+-- | Why a test failed: the term and its type, and for preservation the
+--   reduct with its type or its error.
+counterexampleJson :: Counterexample -> Json
+counterexampleJson = \case
+  NotPreserved e t e' result ->
+    object $
+      [("kind", JString "preservation"), ("expr", showJ e), ("type", showJ t), ("reduct", showJ e')]
+        <> either (\err -> [("error", JString (errMessage err))]) (\t' -> [("reductType", showJ t')]) result
+  Stuck e t -> object [("kind", JString "progress"), ("expr", showJ e), ("type", showJ t)]

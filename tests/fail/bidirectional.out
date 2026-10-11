@@ -1,0 +1,18 @@
+✗ Lam(x, x) -> [Error] Cannot infer the type of Lam(x, x): its rule only checks it against a known type
+    at tests/fail/bidirectional.pal:20:7
+       |
+    20 | infer Lam(x, x)
+       |       ^^^^^^^^^
+✗ App(Lam(x, x), True) -> [Error] Cannot infer the type of Lam(x, x): its rule only checks it against a known type
+    at tests/fail/bidirectional.pal:21:11
+       |
+    21 | infer App(Lam(x, x), True)
+       |           ^^^^^^^^^
+    in rule App, premise f => Arrow<a, b>  (checking Lam(x, x))
+✗ check Lam(x, True) : Arrow<Bool, Arrow<Bool, Bool>> — [Error] Type mismatch: expected Arrow<Bool, Bool>, got Bool
+    at tests/fail/bidirectional.pal:22:14
+       |
+    22 | check Lam(x, True) : Arrow<Bool, Arrow<Bool, Bool>>
+       |              ^^^^
+    in rule Lam, premise x : Bool ⊢ body <= Arrow<Bool, Bool>  (checking True)
+1 of 1 check failed

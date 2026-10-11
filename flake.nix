@@ -91,7 +91,8 @@
               exec "$ui_bin" "$@"
             '';
           };
-          # Build `pal` and run the regression tests (tests/run.sh).
+          # Build `pal` and run the regression tests (tests/run.sh), then the
+          # property tests of the engine (tests/properties).
           #   run-tests             # run every test
           #   run-tests --accept    # also rewrite tests/fail/*.out from the current output
           run-tests = pkgs.writeShellApplication {
@@ -100,8 +101,10 @@
             text = ''
               cd "$(git rev-parse --show-toplevel)"
               hpack >/dev/null
-              cabal build -v0 exe:pal
-              PAL="$(cabal list-bin -v0 exe:pal)" exec bash tests/run.sh "$@"
+              cabal build -v0 exe:pal test:pal-properties
+              PAL="$(cabal list-bin -v0 exe:pal)" bash tests/run.sh "$@"
+              echo
+              "$(cabal list-bin -v0 test:pal-properties)"
             '';
           };
           # Build and run the PAL examples.

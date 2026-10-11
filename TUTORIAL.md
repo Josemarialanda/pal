@@ -10,7 +10,10 @@ Learn how type systems work by building some in PAL. Each section adds one idea 
 6. [Variables and binders](#6-variables-and-binders)
 7. [Let-polymorphism](#7-let-polymorphism)
 8. [More type systems](#8-more-type-systems)
-9. [Exercises](#9-exercises)
+9. [Dependent types](#9-dependent-types)
+10. [Bidirectional typing](#10-bidirectional-typing)
+11. [Testing your type system](#11-testing-your-type-system)
+12. [Exercises](#12-exercises)
 
 To follow along, open a REPL with `nix develop` and then `pal`, or run `pal-ui` for a browser editor that checks as you type. The [README](README.md) has the full syntax reference.
 
@@ -312,6 +315,7 @@ The files in [`examples/programs/`](examples/programs/) combine the ideas above 
 | `lists.pal`    | Polymorphic lists               | `Fold`: a rule that takes a function        |
 | `hm.pal`       | Hindley–Milner                  | `gen` (§7)                                  |
 | `logic.pal`    | Propositional logic             | Types as propositions                       |
+| `lambda-pi.pal` | Dependent types (λΠ)           | Types that mention expressions (§9)         |
 
 **Sums.** `Case` checks each branch with its own variable in scope:
 
@@ -332,9 +336,180 @@ rule Case:
 ✗ Lam(p, App(p, p))            -> Infinite type                    -- proves nothing
 ```
 
+**Proof search.** You can also ask PAL for the proof. `find T` searches backwards from `T` through the rules, and shows the smallest term of that type that it finds:
+
+```
+✓ find Implies<Or<a, b>, Or<b, a>> — Lam(x, Case(x, y, Inr(y), z, Inl(z)))
+✗ find Or<a, Implies<a, False>>   — no term of this type found
+```
+
+The second line is the law of excluded middle. It is not a theorem of this logic (intuitionistic logic), so no search can find a proof. But when the search finds nothing, that alone does not show that no proof exists: the search stops after 6 rules.
+
 ---
 
-## 9. Exercises
+## 9. Dependent types
+
+Up to now, a type only mentions other types. A **dependent type** can also mention an expression: `Vec(n, a)` is the type of vectors that contain `n` values of type `a`. Then the type checker can find a wrong length before the program runs.
+
+In PAL, expressions and types are the same terms, so you need only three new ideas. [`lambda-pi.pal`](examples/programs/lambda-pi.pal) has all of them.
+
+### Types that mention expressions
+
+Types are now terms, so declare them with `expr` and check them with rules. `Type` is the type of types:
+
+```haskell
+expr Type : Type
+expr Nat  : Type
+expr Zero : Nat
+
+rule Succ:              rule Vec:                  rule Replicate:
+  n : Nat                 n : Nat                    n : Nat
+->                        a : Type                   x : a
+  Succ(n) : Nat         ->                         ->
+                          Vec(n, a) : Type           Replicate(n, x) : Vec(n, a)
+```
+
+In a rule, a variable of the conclusion stands for the matched expression, also in the types. In `infer Replicate(Succ(Zero), Zero)`, `n` is `Succ(Zero)`, so the type is `Vec(Succ(Zero), Nat)`. The other lowercase variables, like `a`, are type variables as before.
+
+### Π-types
+
+The type of a function can depend on its argument. `Pi(x, t, u)` is the type of functions that take an `x` of type `t` and give a `u`, where `u` can mention `x`:
+
+```haskell
+rule Pi:                  rule Lam:                       rule App:
+  t : Type                  t : Type                        f : Pi(x, t, u)
+  x : t |- u : Type         x : t |- body : u               a : t
+->                        ->                              ->
+  Pi(x, t, u) : Type        Lam(x, t, body) : Pi(x, t, u)   App(f, a) : u[x := a]
+```
+
+`u[x := a]` is a **substitution**: `u` with `a` in place of `x`. PAL applies it when it knows `u`.
+
+#### How `infer App(Lam(n, Nat, Replicate(n, Zero)), Succ(Zero))` works
+
+| Step                                                            | Learned                                    |
+| --------------------------------------------------------------- | ------------------------------------------ |
+| `App`, fresh: `f : Pi(x₁, t₁, u₁)`, `a : t₁`                    | —                                          |
+| `f` is `Lam(n, Nat, Replicate(n, Zero))` : `Pi(n, Nat, Vec(n, Nat))` | `x₁ = n`, `t₁ = Nat`, `u₁ = Vec(n, Nat)` |
+| `a` is `Succ(Zero)` : `Nat`                                     | matches ✓                                  |
+| Result `u₁[x₁ := Succ(Zero)]`                                   | **`Vec(Succ(Zero), Nat)`**                 |
+
+PAL gets the **binders** from the rules. The premise `x : t |- u : Type` of the `Pi` rule tells PAL that `x` is bound in `u`. Thus:
+
+- The names of bound variables do not matter: `Pi(m, Nat, Vec(m, Nat))` and `Pi(n, Nat, Vec(n, Nat))` are the same type.
+- Substitution does not capture a variable. PAL renames a binder if necessary, for example to `y1`.
+
+A Π over `Type` gives polymorphism:
+
+```
+✓ Lam(a, Type, Lam(x, a, x))                   :: Pi(a, Type, Pi(x, a, a))
+✓ App(App(Lam(a, Type, Lam(x, a, x)), Nat), Zero) :: Nat
+```
+
+### Computation
+
+A type can contain a computation, for example the length of two vectors together:
+
+```haskell
+rule Append:                                reduce PlusZero: Plus(Zero, n) ~> n
+  xs : Vec(m, a)                            reduce PlusSucc: Plus(Succ(m), n) ~> Succ(Plus(m, n))
+  ys : Vec(n, a)
+->
+  Append(xs, ys) : Vec(Plus(m, n), a)
+```
+
+A `reduce` statement says that two terms are equal. When unification finds two different types, PAL reduces both and compares them again. So `Vec(Plus(Succ(Zero), Succ(Zero)), Nat)` fits where `Vec(Succ(Succ(Zero)), Nat)` is expected. Results are shown in normal form:
+
+```
+✓ Append(VCons(Zero, VNil), VCons(Zero, VNil)) :: Vec(Succ(Succ(Zero)), Nat)
+```
+
+With `reduce Beta: App(Lam(x, t, body), a) ~> body[x := a]`, types can also contain function applications.
+
+`Succ(Succ(Zero))` is long to write. A **definition** gives it a name:
+
+```haskell
+def Two  := Succ(Succ(Zero))
+def Vec2 := Vec(Two, Nat)
+```
+
+PAL infers the type of the body (`Nat`, then `Type`), adds the name as a constant of that type, and adds a reduction from the name to the body. So `Replicate(Two, Zero)` fits where a `Vec2` is expected.
+
+### Limits
+
+- If `u` in `u[x := a]` is still unknown, PAL waits until a later premise solves `u`. If no premise does, PAL reports a **stuck substitution**. PAL does no higher-order unification, so give the type of a function before you apply it.
+- A type cannot mention a variable outside its binder. A `Let` rule with the conclusion `Let(x, value, body) : u` gives a **scope error** when the type of `body` mentions `x`. Write `u[x := value]` instead.
+- PAL does not check that your reductions terminate. It stops after 10 000 steps with a **reduction limit** error.
+- `Type : Type` is inconsistent as a logic, but it is sufficient to experiment.
+
+---
+
+## 10. Bidirectional typing
+
+So far, PAL infers the type of every subterm, then compares it with what the rule expects. Many real type checkers work in two **directions** instead:
+
+- **Synthesis** `e => T`: find the type of `e` from `e` alone.
+- **Checking** `e <= T`: the type `T` is known, and `e` must have it.
+
+Some terms can only be checked. An unannotated `Lam(x, x)` has no type of its own, but it checks against `Arrow<Bool, Bool>`. Write the direction in the rules:
+
+```haskell
+rule Lam:                        rule App:                  rule Ann:
+  x : a |- body <= b               f => Arrow<a, b>           e <= t
+->                                 x <= a                   ->
+  Lam(x, body) <= Arrow<a, b>    ->                           Ann(e, t) => t
+                                   App(f, x) => b
+```
+
+A rule with a `<=` conclusion is used only when the expected type is known. PAL first unifies the expected type with the conclusion type, then checks the premises. So in `Lam`, the type `a` of `x` is known before PAL checks the body.
+
+```
+✓ check Lam(x, x) : Arrow<Bool, Bool>
+✗ infer Lam(x, x)          -> Cannot infer the type of Lam(x, x): its rule only checks it against a known type
+✓ App(Ann(Lam(x, x), Arrow<Bool, Bool>), True) :: Bool
+✗ App(Lam(x, x), True)     -> Cannot infer the type of Lam(x, x)
+```
+
+The last line fails because `App` synthesises the type of its function, and a bare lambda cannot synthesise. The annotation `Ann` turns a checked term into a synthesised one. Its argument, in contrast, is checked, so `App(Ann(…), Lam(y, y))` works.
+
+A plain premise `e : T` checks `e` against `T`. For a rule without a direction, checking falls back to inference, so the systems from the earlier sections work as before. [`tests/pass/bidirectional.pal`](tests/pass/bidirectional.pal) has the complete system.
+
+---
+
+## 11. Testing your type system
+
+A type system is **sound** when well-typed programs cannot go wrong. For a system with reductions, two properties together give soundness:
+
+- **Preservation:** if `e : T` and `e` reduces to `e'`, then `e' : T`.
+- **Progress:** if `e : T` and `e` is closed, then `e` is a value or `e` can reduce.
+
+A proof takes work. PAL can **test** both properties: it generates many well-typed closed terms from your rules, and it checks each one. Tell PAL which terms are values, then ask for the tests:
+
+```haskell
+reduce Beta:    App(Lam(x, body), a) ~> body[x := a]
+reduce FstPair: Fst(Pair(a, b)) ~> b       -- a mistake: Fst should give a
+
+value Lam(x, body)
+value Pair(a, b)
+value True
+
+test preservation
+test progress
+```
+
+```
+✗ test preservation — Lam(x, Fst(Pair(False, x))) : Arrow<a, Bool> reduces to Lam(x, x) : Arrow<a, a>
+```
+
+The counterexample shows the mistake: `Fst(Pair(False, x))` has the type of `False`, but it reduces to `x`. Correct the reduction to `~> a` and the test passes.
+
+Progress finds a missing reduction. With a rule for `Not` but no `reduce` for it, PAL reports that `Not(False)` is stuck: it does not reduce, and it is not a value.
+
+PAL reports the smallest counterexample that it found. A test that passes is good evidence, but it is not a proof: PAL checks only the terms that it generated. Give a larger number, such as `test preservation 20000`, to check more terms.
+
+---
+
+## 12. Exercises
 
 Start with `pal -i examples/programs/stlc.pal`, then add rules as you go. Write each answer as a `check` (or `fails`) and PAL will tell you whether you are right.
 
@@ -343,6 +518,7 @@ Start with `pal -i examples/programs/stlc.pal`, then add rules as you go. Write 
 3. Predict the type of `Lam(f, Lam(x, App(f, x)))` before you run it.
 4. Why is `App(Lam(x, x), Lam(y, y))` typed `Arrow<a, a>`?
 5. Write a `Compose(f, g)` rule, then try `Compose(Not, IsZero)`.
+6. In `lambda-pi.pal`, write a `Head(xs)` rule that accepts only a vector that is not empty. Then `Head(VNil)` must fail.
 
 <details>
 <summary>Answers</summary>
@@ -365,6 +541,13 @@ Start with `pal -i examples/programs/stlc.pal`, then add rules as you go. Write 
      g : Arrow<a, b>
    ->
      Compose(f, g) : Arrow<a, c>
+   ```
+6. `check Head(VCons(Zero, VNil)) : Nat` and `fails Head(VNil)`, using:
+   ```haskell
+   rule Head:
+     xs : Vec(Succ(n), a)
+   ->
+     Head(xs) : a
    ```
 
 </details>

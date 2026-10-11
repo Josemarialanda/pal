@@ -1,0 +1,22 @@
+-- Bidirectional typing errors: a term that only checks, used where its type
+-- must be inferred.
+
+type Bool
+type Arrow<a, b>
+
+expr True : Bool
+
+rule Lam:
+  x : a |- body <= b
+->
+  Lam(x, body) <= Arrow<a, b>
+
+rule App:
+  f => Arrow<a, b>
+  x <= a
+->
+  App(f, x) => b
+
+infer Lam(x, x)
+infer App(Lam(x, x), True)
+check Lam(x, True) : Arrow<Bool, Arrow<Bool, Bool>>

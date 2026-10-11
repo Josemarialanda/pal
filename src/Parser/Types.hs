@@ -11,7 +11,7 @@
 -- (e.g. 'defineType', 'defineExpr', 'defineRule', 'infer').
 module Parser.Types where
 
-import Types (Expr, ExprDecl, Type, TypeDecl, TypingRule)
+import Types (Expr, ExprDecl, Reduction, Term, TermDef, TestSpec, Type, TypeDecl, TypingRule)
 
 -- | A single top-level PAL statement.
 --
@@ -23,6 +23,16 @@ data PalStmt
     SExpr ExprDecl
   | -- | A typing rule definition
     SRule TypingRule
+  | -- | A reduction: @reduce Name: lhs ~> rhs@
+    SReduce Reduction
+  | -- | A value pattern: @value Succ(n)@
+    SValue Term
+  | -- | A definition: @def Name := body@
+    SDef TermDef
+  | -- | A test of the type system: @test preservation@ or @test progress@
+    STest TestSpec
+  | -- | A proof search: @find T@
+    SFind Type
   | -- | A type inference request: @infer e@
     SInfer Expr
   | -- | An expected type: @check e : T@

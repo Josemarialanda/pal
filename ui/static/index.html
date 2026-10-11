@@ -40,6 +40,8 @@
   .logo small { color: var(--muted); }
   label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
   select.theme { font: 13px var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; max-width: 220px; }
+  button.share { font: 13px var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  button.share:hover { border-color: var(--accent); }
 
   /* Layout */
   main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 0; }
@@ -110,6 +112,7 @@
   .error { cursor: pointer; }
   .error:hover .err-text { text-decoration: underline; }
   .err-text { color: var(--err); font-family: var(--sans); font-size: 13px; }
+  .warn-text { color: var(--rule); font-family: var(--sans); font-size: 13px; margin-top: 4px; }
   .err-text .tycon, .err-text .tyvar, .err-text .con, .err-text .var { font-family: var(--mono); }
   .context { color: var(--muted); font-size: 12.5px; }
   .context .rname { color: var(--rule); font-style: italic; font-family: var(--sans); }
@@ -150,6 +153,8 @@
 // Colour schemes from https://github.com/tinted-theming/schemes (ui/themes),
 // inlined by pal-ui: [id, name, "dark" | "light", base00…base0F as 16 × 6 hex digits].
 const THEMES = /*THEMES*/[];
+// [name, title, source] for each example program, inlined by the server.
+const EXAMPLES = /*EXAMPLES*/[];
 
 // Map a scheme's base16 slots onto the page's colour variables, or go back
 // to the built-in light/dark colours when id is "" (or no longer exists).
@@ -182,6 +187,8 @@ try { applyTheme(localStorage.getItem("pal.theme") || ""); } catch {}
 <header>
   <div class="logo"><b><span>λ</span>PAL</b><small>typechecker sandbox</small></div>
   <label class="toggle"><input type="checkbox" id="showDefs" checked> definitions</label>
+  <select class="theme" id="examples" title="Load an example program" aria-label="Examples"><option value="">Examples…</option></select>
+  <button class="share" id="share" type="button" title="Copy a link that opens this program">Share</button>
   <select class="theme" id="theme" title="Theme" aria-label="Theme"><option value="">Default</option></select>
 </header>
 
@@ -227,12 +234,35 @@ check Not(True) : Bool -- expect a type (type variables may be renamed)
 fails Not(Not)         -- expect a type error</pre>
   <p>Types must be declared before use, with the right number of arguments. A definition that breaks this, or a rule whose premise uses a variable missing from its conclusion, is rejected.</p>
 
+  <h3>Dependent types</h3>
+  <pre data-pal>rule Vec:                    -- a type can mention expressions
+  n : Nat
+  a : Type
+->
+  Vec(n, a) : Type
+App(f, a) : u[x := a]        -- u with a for x, in a rule's type
+reduce Beta: App(Lam(x, t, b), a) ~> b[x := a]
+def Two := Succ(Succ(Zero))  -- a name for a term</pre>
+  <p>Expressions and types are the same terms: <code>C(…)</code> and <code>C&lt;…&gt;</code> are equal. A premise <code>x : t |- u : …</code> in a rule for <code>Pi(x, t, u)</code> makes <code>x</code> bound in <code>u</code>. Types are equal up to bound names and up to <code>reduce</code>.</p>
+
+  <h3>Proof search</h3>
+  <pre data-pal>find Implies&lt;a, a&gt;     -- find a term of this type: Lam(x, x)</pre>
+  <p>PAL searches backwards from the type through your rules, up to 6 rules deep. With types as propositions, the term is a proof.</p>
+
+  <h3>Metatheory</h3>
+  <pre data-pal>value Succ(n)          -- a pattern of values
+test preservation      -- reduction keeps the type
+test progress 2000     -- a term that does not reduce is a value</pre>
+  <p>A test generates well-typed closed terms from your rules (5000 tries if you give no number) and shows the smallest counterexample.</p>
+
   <h3>Premises</h3>
   <pre data-pal>x : T                  -- x must have type T
 x : A |- body : B      -- check body with x : A in scope
 x : A, y : B |- e : C  -- several hypotheses
-x : gen A |- body : B  -- x is polymorphic in body</pre>
-  <p><code>⊢</code> works in place of <code>|-</code>.</p>
+x : gen A |- body : B  -- x is polymorphic in body
+x => T                 -- infer the type of x
+x <= T                 -- check x against T</pre>
+  <p><code>⊢</code> works in place of <code>|-</code>. A rule with a <code>&lt;=</code> conclusion, like <code>Lam(x, b) &lt;= Arrow&lt;a, b&gt;</code>, is used only when the expected type is known.</p>
 
   <h3>Naming</h3>
   <ul>
@@ -249,6 +279,10 @@ x : gen A |- body : B  -- x is polymorphic in body</pre>
     <tr><td>Infinite type</td><td>A type would contain itself (<code>a ~ Arrow&lt;a, b&gt;</code>)</td></tr>
     <tr><td>No typing rule matched</td><td>A constant was given arguments</td></tr>
     <tr><td>undeclared type</td><td>Declare it first with <code>type</code></td></tr>
+    <tr><td>undeclared constructor</td><td>Declare it first with <code>expr</code> or a rule</td></tr>
+    <tr><td>Stuck substitution</td><td>In <code>u[x := e]</code>, <code>u</code> is still unknown</td></tr>
+    <tr><td>Reduction limit</td><td>The reductions of a term do not stop</td></tr>
+    <tr><td>Scope error</td><td>A variable would be used outside its binder</td></tr>
   </table>
 
   <h3>This page</h3>
@@ -256,7 +290,8 @@ x : gen A |- body : B  -- x is polymorphic in body</pre>
     <li>The program is checked from the top on every edit</li>
     <li>The part of the program at fault is underlined; click an error to jump to it. <code>Tab</code> indents</li>
     <li>Open <b>derivation</b> under a result to see how PAL proved it, or copy it as LaTeX</li>
-    <li><b>definitions</b> shows or hides <code>type</code>, <code>expr</code> and <code>rule</code> results</li>
+    <li><b>definitions</b> shows or hides <code>type</code>, <code>expr</code>, <code>rule</code>, <code>reduce</code>, <code>def</code> and <code>value</code> results</li>
+    <li><b>Examples</b> loads an example program. <b>Share</b> copies a link that opens your program</li>
   </ul>
   <p>New to type systems? <a href="https://github.com/Josemarialanda/pal/blob/main/TUTORIAL.md" target="_blank" rel="noopener">Read the tutorial →</a></p>
 </div>
@@ -307,7 +342,7 @@ let latexById = [];     // LaTeX of each rendered derivation, for "Copy LaTeX"
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const span = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
-const KEYWORDS = new Set(["type", "expr", "rule", "infer", "check", "fails", "gen"]);
+const KEYWORDS = new Set(["type", "expr", "rule", "reduce", "def", "value", "infer", "check", "fails", "find", "test", "preservation", "progress", "gen"]);
 
 // Highlight PAL source. Type positions (after ':' up to the end of the judgment)
 // use type colours; everything else uses expression colours. Tokens inside a
@@ -315,8 +350,9 @@ const KEYWORDS = new Set(["type", "expr", "rule", "infer", "check", "fails", "ge
 function highlightSource(text, ranges = []) {
   let lineStart = 0;
   return text.split("\n").map((line, i) => {
-    let out = "", inType = false, depth = 0;
-    const re = /(--.*$)|([A-Za-z][A-Za-z0-9_]*)|(\|-|⊢|->)|([:,()<>])|(\s+)|(.)/g;
+    // The ':' after `reduce Name` starts expressions, not a type.
+    let out = "", inType = false, depth = 0, inReduce = false;
+    const re = /(--.*$)|([A-Za-z][A-Za-z0-9_]*)|(\|-|⊢|->|~>)|(:=|=>|<=|[:,()<>[\]])|(\s+)|(.)/g;
     const marked = (from, to) => ranges.some(([s, e]) => from < e && to > s);
     let m;
     while ((m = re.exec(line)) !== null) {
@@ -324,15 +360,16 @@ function highlightSource(text, ranges = []) {
       let html;
       if (comment) html = span("comment", tok);
       else if (ident) {
-        if (KEYWORDS.has(ident) && (ident !== "gen" || inType)) html = span("kw", tok);
+        if (KEYWORDS.has(ident) && (ident !== "gen" || inType)) { html = span("kw", tok); if (ident === "reduce") inReduce = true; if (ident === "find") inType = true; }
         else if (inType) html = span(/^[a-z]/.test(ident) ? "tyvar" : "tycon", tok);
         else html = span(/^[a-z]/.test(ident) ? "var" : "con", tok);
       } else if (arrow) { html = span("kw", tok); inType = false; }
       else if (punct) {
         html = span("punct", tok);
-        if (tok === ":") inType = true;
-        else if (tok === "<") depth++;
-        else if (tok === ">") depth = Math.max(0, depth - 1);
+        if (tok === ":" && inReduce) inReduce = false;
+        else if (tok === ":" || tok === "=>" || tok === "<=") inType = true;
+        else if ("<([".includes(tok)) depth++;
+        else if (">)]".includes(tok)) depth = Math.max(0, depth - 1);
         else if (tok === "," && depth === 0) inType = false; // next hypothesis
       }
       else html = esc(tok);
@@ -353,7 +390,7 @@ function highlightTerm(text, isType) {
 }
 const ty = (t) => highlightTerm(t, true);
 const ex = (e) => highlightTerm(e, false);
-const judgment = (j) => `${ex(j.expr)}<span class="sep">:</span>${ty(j.type)}`;
+const judgment = (j) => `${ex(j.expr)}<span class="sep">${esc(j.mode || ":")}</span>${ty(j.type)}`;
 
 // Highlight the types inside an error message.
 function highlightError(msg) {
@@ -362,6 +399,9 @@ function highlightError(msg) {
   if ((m = /^(Infinite type: )(.+)( ~ )(.+)$/.exec(msg))) return esc(m[1]) + ty(m[2]) + esc(m[3]) + ty(m[4]);
   if ((m = /^(Unknown expression → )(.+)$/.exec(msg))) return esc(m[1]) + ex(m[2]);
   if ((m = /^(No typing rule matched for → )(.+)$/.exec(msg))) return esc(m[1]) + ex(m[2]);
+  if ((m = /^(Stuck substitution: )(.+)( \(its body is not known\))$/.exec(msg))) return esc(m[1]) + ty(m[2]) + esc(m[3]);
+  if ((m = /^(Reduction limit: )(.+)( does not stop reducing)$/.exec(msg))) return esc(m[1]) + ex(m[2]) + esc(m[3]);
+  if ((m = /^(Scope error: )(.+)( escapes its binder in )(.+)$/.exec(msg))) return esc(m[1]) + span("var", m[2]) + esc(m[3]) + ty(m[4]);
   return esc(msg);
 }
 
@@ -490,17 +530,21 @@ function render(data) {
     (bad ? ` <span class="sep">·</span><span style="color:var(--err)">${bad} ✗</span>` : "");
 }
 
-const isResult = (item) => item.kind === "infer" || item.kind === "check" || item.kind === "fails";
+const isResult = (item) => item.kind === "infer" || item.kind === "check" || item.kind === "fails" || item.kind === "test" || item.kind === "find";
 const failed = (item) => item.rejected || (isResult(item) && !item.ok);
 
 function renderItem(item) {
   switch (item.kind) {
-    case "type": case "expr": case "rule": {
+    case "type": case "expr": case "rule": case "reduce": case "def": case "value": {
       const body =
         item.kind === "type" ? span("tycon", item.name) + (item.args.length ? span("punct", "<") + item.args.map((a) => span("tyvar", a)).join(span("punct", ", ")) + span("punct", ">") : "")
         : item.kind === "expr" ? `${ex(item.name)}<span class="sep">:</span>${ty(item.type)}`
+        : item.kind === "reduce" ? span("rule", item.name) + span("punct", ": ") + ex(item.text.slice(item.name.length + 2))
+        : item.kind === "value" ? ex(item.text)
+        : item.kind === "def" ? span("con", item.name) + span("punct", " := ") + ex(item.text.slice(item.text.indexOf(":=") + 3))
         : renderRule(item.rule);
-      if (!item.rejected) return `<div class="item def"><span class="tag">${item.kind}</span>${body}</div>`;
+      const warnings = (item.diagnostics || []).filter((d) => d.severity === "warning").map((d) => `<div class="warn-text">⚠ ${esc(d.message)}</div>`).join("");
+      if (!item.rejected) return `<div class="item def${warnings ? " warned" : ""}"><span class="tag">${item.kind}</span>${body}${warnings}</div>`;
       const reasons = item.diagnostics.map((d) => `<div class="err-text">${esc(d.message)}</div>`).join("");
       return `<div class="item rejected" data-jump="${item.start}" title="Click to jump to the definition"><span class="tag">${item.kind} · rejected</span>${body}<div class="errors">${reasons}</div></div>`;
     }
@@ -516,6 +560,27 @@ function renderItem(item) {
         : item.errors ? errorsHtml(item.errors)
         : `<div class="errors"><div class="err-text">inferred ${ty(item.type)}</div></div>`;
       return `<div class="item bad"><span class="mark">✗</span>${head}${reason}</div>`;
+    }
+    case "find": {
+      const head = `${span("kw", "find")} ${ty(item.expected)}`;
+      if (item.ok) return `<div class="item ok"><span class="mark">✓</span>${head}<span class="sep">—</span>${ex(item.term)}${derivationHtml(item)}</div>`;
+      const reasons = item.diagnostics.length ? item.diagnostics.map((d) => d.message).join("; ") : item.error;
+      return `<div class="item bad" data-jump="${item.start}" title="Click to jump to it"><span class="mark">✗</span>${head}<div class="errors"><div class="err-text">${esc(reasons)}</div></div></div>`;
+    }
+    case "test": {
+      const head = `${span("kw", "test")} ${span("kw", item.property)}`;
+      if (item.ok) {
+        const note = item.checked === 0 ? "no generated term has a type, so nothing was checked" : `${item.checked} well-typed term${item.checked === 1 ? "" : "s"}`;
+        return `<div class="item ok"><span class="mark">✓</span>${head}<span class="aside">${esc(note)}</span></div>`;
+      }
+      const c = item.counterexample;
+      const judged = `${ex(c.expr)}<span class="sep">:</span>${ty(c.type)}`;
+      const why = c.kind === "progress"
+        ? `${judged} does not reduce, and no value pattern matches it`
+        : c.error !== undefined
+          ? `${judged} reduces to ${ex(c.reduct)}, which has no type: ${highlightError(c.error)}`
+          : `${judged} reduces to ${ex(c.reduct)}<span class="sep">:</span>${ty(c.reductType)}`;
+      return `<div class="item bad" data-jump="${item.start}" title="Click to jump to the test"><span class="mark">✗</span>${head}<div class="errors"><div class="err-text">${why}</div></div></div>`;
     }
     case "fails": {
       const head = `${span("kw", "fails")} ${ex(item.expr)}`;
@@ -617,10 +682,63 @@ themeSelect.addEventListener("change", () => {
   store.set("theme", themeSelect.value);
 });
 
+/* ---------- Examples and shareable links ---------- */
+
+// Replace the program, as if the user had typed it.
+function setSource(text) {
+  src.value = text;
+  store.set("source", text);
+  refreshEditor();
+  scheduleRun();
+}
+
+const examplesSelect = $("examples");
+for (const [name, title] of EXAMPLES) examplesSelect.append(new Option(title ? `${name} — ${title}` : name, name));
+examplesSelect.addEventListener("change", () => {
+  const example = EXAMPLES.find((e) => e[0] === examplesSelect.value);
+  examplesSelect.value = "";
+  if (!example) return;
+  const edited = src.value.trim() !== "" && src.value !== WELCOME && !EXAMPLES.some((e) => e[2] === src.value);
+  if (edited && !confirm(`Replace your program with the example ${example[0]}?`)) return;
+  setSource(example[2]);
+});
+
+// A shared program goes in the URL fragment (#code=…) as base64url of its
+// UTF-8 bytes. The fragment is not sent to the server.
+function encodeProgram(text) {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function decodeProgram(code) {
+  const binary = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
+}
+// The program in the address, if the page was opened with a shared link.
+function sharedProgram() {
+  const m = /^#code=([A-Za-z0-9_-]+)$/.exec(location.hash);
+  if (!m) return null;
+  try { return decodeProgram(m[1]); } catch { return null; }
+}
+
+const shareButton = $("share");
+shareButton.addEventListener("click", async () => {
+  const url = `${location.origin}${location.pathname}${location.search}#code=${encodeProgram(src.value)}`;
+  history.replaceState(null, "", url);
+  let message = "Link copied";
+  try { await navigator.clipboard.writeText(url); } catch { message = "Link is in the address bar"; }
+  shareButton.textContent = message;
+  setTimeout(() => { shareButton.textContent = "Share"; }, 2000);
+});
+// After an edit, the shared link in the address no longer shows the program.
+src.addEventListener("input", () => {
+  if (location.hash.startsWith("#code=")) history.replaceState(null, "", `${location.pathname}${location.search}`);
+});
+
 // Highlight the cheat sheet's examples like the editor.
 for (const pre of document.querySelectorAll("pre[data-pal]")) pre.innerHTML = highlightSource(pre.textContent).replace(/\n $/, "");
 
-src.value = store.get("source", WELCOME);
+src.value = sharedProgram() ?? store.get("source", WELCOME);
 refreshEditor();
 run();
 </script>

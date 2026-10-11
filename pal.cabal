@@ -28,6 +28,10 @@ library
       Pretty
       Report
       Repl
+      Interpreters.Common.Actions
+      Interpreters.Common.Expectations
+      Interpreters.Common.Metatheory
+      Interpreters.Common.Search
       Interpreters.Core
       Interpreters.Debug
       Interpreters.IO
@@ -35,7 +39,6 @@ library
       Parser.Quasi
       Parser.Types
   other-modules:
-      Interpreters.Common.Actions
       Utils.OneOfN
   hs-source-dirs:
       src
@@ -46,6 +49,7 @@ library
       TypeApplications
       RecordWildCards
       OverloadedStrings
+      PatternSynonyms
       PolyKinds
       FlexibleContexts
       ConstraintKinds
@@ -93,6 +97,7 @@ executable pal
       TypeApplications
       RecordWildCards
       OverloadedStrings
+      PatternSynonyms
       PolyKinds
       FlexibleContexts
       ConstraintKinds
@@ -136,6 +141,7 @@ executable pal-examples
       TypeApplications
       RecordWildCards
       OverloadedStrings
+      PatternSynonyms
       PolyKinds
       FlexibleContexts
       ConstraintKinds
@@ -180,6 +186,7 @@ executable pal-ui
       TypeApplications
       RecordWildCards
       OverloadedStrings
+      PatternSynonyms
       PolyKinds
       FlexibleContexts
       ConstraintKinds
@@ -212,4 +219,50 @@ executable pal-ui
     , process
     , template-haskell
     , text
+  default-language: Haskell2010
+
+test-suite pal-properties
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_pal
+  autogen-modules:
+      Paths_pal
+  hs-source-dirs:
+      tests/properties
+  default-extensions:
+      DataKinds
+      TypeOperators
+      ScopedTypeVariables
+      TypeApplications
+      RecordWildCards
+      OverloadedStrings
+      PatternSynonyms
+      PolyKinds
+      FlexibleContexts
+      ConstraintKinds
+      ViewPatterns
+      LambdaCase
+      GeneralizedNewtypeDeriving
+      TupleSections
+      InstanceSigs
+      DeriveFunctor
+      NamedFieldPuns
+      TypeFamilies
+      FlexibleInstances
+      UndecidableInstances
+      DeriveDataTypeable
+      OverloadedRecordDot
+      TemplateHaskell
+      MultiWayIf
+      GADTs
+      RankNTypes
+  ghc-options: -Wall -Werror
+  build-depends:
+      QuickCheck
+    , base >=4.9 && <5
+    , containers
+    , megaparsec
+    , pal
+    , polysemy
   default-language: Haskell2010

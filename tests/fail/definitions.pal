@@ -18,3 +18,22 @@ rule Weird:
 -- Rules that were rejected are not there to use.
 fails W(True)
 fails Not
+
+-- Definitions: the body must have a type, and the name must be new.
+def Bad := Weird(True)
+def True := True
+
+-- Overlaps are warnings: the definition is added, but PAL uses only one of
+-- the rules (the newest) or one of the reductions (the first).
+rule IsTrue:
+  b : Bool
+->
+  IsTrue(b) : Bool
+
+rule IsTrueAgain:
+  b : Bool
+->
+  IsTrue(b) : Bool
+
+reduce IsTrueTrue: IsTrue(True) ~> True
+reduce IsTrueAny:  IsTrue(b) ~> True

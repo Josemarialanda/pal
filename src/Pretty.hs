@@ -43,7 +43,10 @@ module Pretty
     prettyErr,
     prettyDefinedType,
     prettyDefinedExpr,
+    prettyDefinedReduction,
     prettyDefinedRule,
+    prettyDefinedValue,
+    prettyDefinedTerm,
     prettyParseError,
     note,
     failure,
@@ -57,15 +60,24 @@ import Data.List (intercalate, isPrefixOf)
 import System.Environment (lookupEnv)
 import System.IO (Handle, hIsTerminalDevice)
 import Types
-  ( Ctx (..),
+  ( Brackets (..),
+    Ctx (..),
     Err (..),
-    Expr (..),
+    Expr,
     ExprDecl (..),
     Hypothesis (..),
+    Mode (..),
     Premise (..),
-    Type (..),
+    Reduction (..),
+    Term (..),
+    TermDef (..),
+    Type,
     TypeDecl (..),
     TypingRule (..),
+    modeSymbol,
+    pattern ECon,
+    pattern EVar,
+    pattern TVar,
   )
 
 --------------------------------------------------------------------------------
@@ -171,31 +183,42 @@ success st = paint st [Green]
 prettyType :: Style -> Type -> String
 prettyType st = \case
   TVar v -> paint st [Italic, Magenta] v
-  TCon n [] -> paint st [Cyan] n
-  TCon n ts ->
-    paint st [Cyan] n
-      <> punct st "<"
-      <> intercalate (punct st ", ") (fmap (prettyType st) ts)
-      <> punct st ">"
+  Con b n ts -> prettyCon st [Cyan] (prettyType st) b n ts
+  Subst body x e -> prettySubst st (prettyType st) body x e
 
 -- | An expression, e.g. @App(f, True)@. Plain output matches 'show'.
 prettyExpr :: Style -> Expr -> String
 prettyExpr st = \case
   EVar v -> paint st [Italic] v
-  ECon n [] -> paint st [Bold] n
-  ECon n es ->
-    paint st [Bold] n
-      <> punct st "("
-      <> intercalate (punct st ", ") (fmap (prettyExpr st) es)
-      <> punct st ")"
+  Con b n es -> prettyCon st [Bold] (prettyExpr st) b n es
+  Subst body x e -> prettySubst st (prettyExpr st) body x e
+
+-- | A constructor and its arguments, in its own brackets.
+prettyCon :: Style -> [Attr] -> (Term -> String) -> Brackets -> String -> [Term] -> String
+prettyCon st codes _ _ n [] = paint st codes n
+prettyCon st codes pretty b n ts =
+  paint st codes n <> punct st open <> intercalate (punct st ", ") (fmap pretty ts) <> punct st close
+  where
+    (open, close) = case b of
+      Parens -> ("(", ")")
+      Angles -> ("<", ">")
+
+-- | A substitution @body[x := e]@, each part shown with the given printer.
+prettySubst :: Style -> (Term -> String) -> Term -> Term -> Term -> String
+prettySubst st pretty body x e =
+  pretty body <> punct st "[" <> pretty x <> punct st " := " <> pretty e <> punct st "]"
 
 prettyJudgment :: Style -> (Expr, Type) -> String
-prettyJudgment st (e, t) = prettyExpr st e <> punct st " : " <> prettyType st t
+prettyJudgment st = prettyJudgmentWith st Plain
+
+-- | A judgment with the symbol of its mode (@:@, @=>@ or @<=@).
+prettyJudgmentWith :: Style -> Mode -> (Expr, Type) -> String
+prettyJudgmentWith st m (e, t) = prettyExpr st e <> punct st (" " <> modeSymbol m <> " ") <> prettyType st t
 
 prettyPremise :: Style -> Premise -> String
-prettyPremise st (Premise [] j) = prettyJudgment st j
-prettyPremise st (Premise hs j) =
-  intercalate (punct st ", ") (fmap hypothesis hs) <> punct st " ⊢ " <> prettyJudgment st j
+prettyPremise st (PremiseWith m [] j) = prettyJudgmentWith st m j
+prettyPremise st (PremiseWith m hs j) =
+  intercalate (punct st ", ") (fmap hypothesis hs) <> punct st " ⊢ " <> prettyJudgmentWith st m j
   where
     hypothesis (Hypothesis e t g) =
       prettyExpr st e <> punct st " : " <> (if g then keyword st "gen" <> " " else "") <> prettyType st t
@@ -207,12 +230,12 @@ prettyPremise st (Premise hs j) =
 -- >  ─────────────────────── And
 -- >      And(x, y) : Bool
 prettyRule :: Style -> TypingRule -> [String]
-prettyRule st (TypingRule name premises conclusion) =
+prettyRule st (TypingRuleWith name premises conclusion mode) =
   [center above | not (null premises)]
     <> [punct st (replicate width '─') <> " " <> paint st [Italic, Yellow] name, center below]
   where
     above = intercalate "     " (fmap (prettyPremise st) premises)
-    below = prettyJudgment st conclusion
+    below = prettyJudgmentWith st mode conclusion
     width = 2 + max (visibleLength above) (visibleLength below)
     center s = replicate ((width - visibleLength s) `div` 2) ' ' <> s
 
@@ -225,6 +248,8 @@ prettyCtx st Ctx {..} =
       <> orNoneLines (fmap (\(ExprDecl n t) -> "  " <> prettyJudgment st (ECon n [], t)) (reverse ctx'exprs))
       <> ["", heading "Rules"]
       <> orNoneLines (intercalate [""] (fmap (fmap ("  " <>) . prettyRule st) (reverse ctx'rules)))
+      <> (if null ctx'reductions then [] else ["", heading "Reductions"] <> fmap (("  " <>) . prettyReduction st) (reverse ctx'reductions))
+      <> (if null ctx'values then [] else ["", heading "Values"] <> fmap (("  " <>) . prettyExpr st) (reverse ctx'values))
   where
     heading = paint st [Bold, Underline]
     typeName (TypeDecl n args) = unwords (paint st [Cyan] n : fmap (paint st [Italic, Magenta]) args)
@@ -263,6 +288,10 @@ prettyErr st err
       ArityMismatch e g -> label "arity mismatch" <> ": expected " <> show e <> " argument(s), got " <> show g
       NoRuleMatched e -> label "no typing rule matches" <> " " <> prettyExpr st e
       InfiniteType v t -> label "infinite type" <> ": " <> prettyType st v <> punct st " ~ " <> prettyType st t
+      ReductionLimit t -> label "reduction limit" <> ": " <> prettyExpr st t <> " does not stop reducing"
+      StuckSubstitution t -> label "stuck substitution" <> ": " <> prettyType st t <> " (its body is not known)"
+      CannotInfer e -> label "cannot infer" <> " the type of " <> prettyExpr st e <> ": its rule only checks it against a known type"
+      ScopeEscape x t -> label "scope error" <> ": " <> paint st [Italic] x <> " escapes its binder in " <> prettyType st t
       CustomErr msg -> label msg
   where
     label = paint st [Bold, Red]
@@ -279,6 +308,26 @@ prettyDefinedExpr st ed@(ExprDecl n t)
   | otherwise = "defined expr " <> show ed
 
 -- | Styled, the confirmation is followed by the rule drawn as an inference rule.
+-- | A reduction, e.g. @Beta: App(Lam(x, t, b), a) ~> b[x := a]@.
+prettyReduction :: Style -> Reduction -> String
+prettyReduction st (Reduction name lhs rhs) =
+  paint st [Italic, Yellow] name <> punct st ": " <> prettyExpr st lhs <> punct st " ~> " <> prettyExpr st rhs
+
+prettyDefinedReduction :: Style -> Reduction -> String
+prettyDefinedReduction st rd
+  | styleEnabled st = note st "defined " <> keyword st "reduce" <> " " <> prettyReduction st rd
+  | otherwise = "defined reduce " <> reduction'name rd
+
+prettyDefinedTerm :: Style -> TermDef -> String
+prettyDefinedTerm st (TermDef name body)
+  | styleEnabled st = note st "defined " <> keyword st "def" <> " " <> paint st [Bold] name <> punct st " := " <> prettyExpr st body
+  | otherwise = "defined def " <> name
+
+prettyDefinedValue :: Style -> Term -> String
+prettyDefinedValue st v
+  | styleEnabled st = note st "defined " <> keyword st "value" <> " " <> prettyExpr st v
+  | otherwise = "defined value " <> show v
+
 prettyDefinedRule :: Style -> TypingRule -> String
 prettyDefinedRule st tr
   | styleEnabled st =

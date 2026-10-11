@@ -83,17 +83,19 @@ import Program (PalAction (..), runPalActions)
 import Types
   ( Ctx,
     Err,
-    Expr (..),
     ExprDecl (ExprDecl),
     PAL,
-    Type (TCon),
+    Type,
     TypeDecl (TypeDecl),
-    TypingRule (..),
     defineExpr,
     defineRule,
     defineType,
     infer,
     premise,
+    pattern ECon,
+    pattern EVar,
+    pattern TCon,
+    pattern TypingRule,
   )
 
 ------------------------------------------------------------
@@ -127,14 +129,11 @@ mainAsCode = either print print =<< Debug.runInterpreterStdout (mempty @Ctx) pro
 
       defineRule $
         TypingRule
-          { typingRule'name = "Add",
-            typingRule'premises =
-              [ premise (EVar "x") (TCon "Num" []),
-                premise (EVar "y") (TCon "Num" [])
-              ],
-            typingRule'ruleConclusion =
-              (ECon "Add" [EVar "x", EVar "y"], TCon "Num" [])
-          }
+          "Add"
+          [ premise (EVar "x") (TCon "Num" []),
+            premise (EVar "y") (TCon "Num" [])
+          ]
+          (ECon "Add" [EVar "x", EVar "y"], TCon "Num" [])
 
       _ <- infer $ ECon "Add" [ECon "True" [], ECon "LitInt" []] -- Type error
       _ <- infer $ ECon "Add" [ECon "LitInt" []] -- Arity mismatch
@@ -159,14 +158,11 @@ mainAsData = either print print =<< Debug.runInterpreterStdout (mempty @Ctx) (ru
         ADefineExpr (ExprDecl "False" (TCon "Bool" [])),
         ADefineRule $
           TypingRule
-            { typingRule'name = "Add",
-              typingRule'premises =
-                [ premise (EVar "x") (TCon "Num" []),
-                  premise (EVar "y") (TCon "Num" [])
-                ],
-              typingRule'ruleConclusion =
-                (ECon "Add" [EVar "x", EVar "y"], TCon "Num" [])
-            },
+            "Add"
+            [ premise (EVar "x") (TCon "Num" []),
+              premise (EVar "y") (TCon "Num" [])
+            ]
+            (ECon "Add" [EVar "x", EVar "y"], TCon "Num" []),
         AInfer (ECon "Add" [ECon "True" [], ECon "LitInt" []]),
         AInfer (ECon "Add" [ECon "LitInt" []]),
         AInfer (ECon "Add" [ECon "LitInt" [], ECon "LitInt" []])

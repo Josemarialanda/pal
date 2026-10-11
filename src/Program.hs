@@ -37,8 +37,10 @@ where
 
 import Control.Monad (foldM)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Interpreters.Common.Actions as Actions
+import qualified Interpreters.Common.Expectations as Expectations
+import qualified Interpreters.Common.Metatheory as Metatheory
 import Parser.Parser (palProgram, palProgramLocated)
 import Parser.Types (Located (..), PalStmt (..))
 import Polysemy (Member, Sem, run)
@@ -55,14 +57,24 @@ import Types
     ExprDecl,
     Failure,
     PAL,
-    Type (TCon),
+    Reduction,
+    Term,
+    TermDef,
+    TestResult (..),
+    TestSpec,
+    Type,
     TypeDecl,
     TypingRule,
     defineExpr,
+    defineReduction,
     defineRule,
+    defineTerm,
     defineType,
+    defineValue,
     expect,
     infer,
+    test,
+    pattern TCon,
   )
 
 --------------------------------------------------------------------------------
@@ -82,6 +94,14 @@ data PalAction
     ADefineExpr ExprDecl
   | -- | Introduce a new typing rule.
     ADefineRule TypingRule
+  | -- | Introduce a new reduction.
+    ADefineReduction Reduction
+  | -- | Declare a value pattern, for the progress test.
+    ADefineValue Term
+  | -- | Define a name for a term.
+    ADefineTerm TermDef
+  | -- | Test a property of the type system on generated terms.
+    ATest TestSpec
   | -- | Run inference on a given expression.
     AInfer Expr
   | -- | Check an expectation (@check e : T@ or @fails e@).
@@ -95,6 +115,10 @@ runPalAction = \case
   ADefineType td -> Nothing <$ defineType td
   ADefineExpr ed -> Nothing <$ defineExpr ed
   ADefineRule tr -> Nothing <$ defineRule tr
+  ADefineReduction rd -> Nothing <$ defineReduction rd
+  ADefineValue v -> Nothing <$ defineValue v
+  ADefineTerm d -> Nothing <$ defineTerm d
+  ATest spec -> Nothing <$ test spec
   AInfer e -> Just <$> infer e
   AExpect x -> Nothing <$ expect x
 
@@ -116,6 +140,11 @@ fromStmt = \case
   SType td -> ADefineType td
   SExpr ed -> ADefineExpr ed
   SRule tr -> ADefineRule tr
+  SReduce rd -> ADefineReduction rd
+  SValue v -> ADefineValue v
+  SDef d -> ADefineTerm d
+  STest spec -> ATest spec
+  SFind t -> AExpect (ExpectInhabited t)
   SInfer e -> AInfer e
   SCheck e t -> AExpect (ExpectType e t)
   SFails e -> AExpect (ExpectFailure e)
@@ -161,6 +190,8 @@ data Outcome
   | -- | The result of @check@ / @fails@: diagnostics about the expected type,
     --   the inference result, and whether the expectation is met.
     Expected Expectation [Diagnostic] (Either (NonEmpty Failure) Derivation) Bool
+  | -- | The result of @test@.
+    Tested TestResult
 
 -- | A statement, where it is in the source, and its outcome.
 data Step = Step
@@ -176,6 +207,7 @@ succeeded = \case
   Rejected _ -> False
   Inferred r -> either (const False) (const True) r
   Expected _ _ _ met -> met
+  Tested result -> isNothing (test'counterexample result)
 
 -- | Run a program from a context, statement by statement, reporting each
 --   outcome. Pure: nothing is printed. Returns the final context.
@@ -191,9 +223,13 @@ runStep ctx = \case
   ADefineType td -> define (Actions.defineType td)
   ADefineExpr ed -> define (Actions.defineExpr ed)
   ADefineRule tr -> define (Actions.defineRule tr)
+  ADefineReduction rd -> define (Actions.defineReduction rd)
+  ADefineValue v -> define (Actions.defineValue v)
+  ADefineTerm d -> define (Actions.defineTerm d)
+  ATest spec -> (ctx, Tested (Metatheory.runTest ctx spec))
   AInfer e -> (ctx, Inferred (Actions.inferDetailed ctx e))
   AExpect x ->
-    let (diagnostics, result, met) = Actions.checkExpectation ctx x
+    let (diagnostics, result, met) = Expectations.checkExpectation ctx x
      in (ctx, Expected x diagnostics result met)
   where
     define action =

@@ -1,0 +1,85 @@
+-- Errors with dependent types: wrong indices, stuck substitutions,
+-- reductions that never stop, and malformed reductions.
+
+expr Type : Type
+expr Nat  : Type
+expr Zero : Nat
+
+rule Succ:
+  n : Nat
+->
+  Succ(n) : Nat
+
+rule Vec:
+  n : Nat
+  a : Type
+->
+  Vec(n, a) : Type
+
+expr VNil : Vec(Zero, a)
+
+rule VCons:
+  x  : a
+  xs : Vec(n, a)
+->
+  VCons(x, xs) : Vec(Succ(n), a)
+
+rule Pi:
+  t : Type
+  x : t |- u : Type
+->
+  Pi(x, t, u) : Type
+
+rule Lam:
+  t : Type
+  x : t |- body : u
+->
+  Lam(x, t, body) : Pi(x, t, u)
+
+rule App:
+  f : Pi(x, t, u)
+  a : t
+->
+  App(f, a) : u[x := a]
+
+-- The index is wrong: a vector of length 1 is not a vector of length 2.
+infer App(Lam(v, Vec(Succ(Succ(Zero)), Nat), v), VCons(Zero, VNil))
+check VCons(Zero, VNil) : Vec(Zero, Nat)
+
+-- The type of Anything is unknown, so u in u[x := Zero] is unknown too.
+expr Anything : a
+infer Succ(App(Anything, Zero))
+
+-- A reduction that never stops.
+expr Loop : Nat
+reduce Spin: Loop ~> Loop
+infer App(Lam(v, Vec(Loop, Nat), v), VCons(Zero, VNil))
+
+-- Malformed reductions.
+reduce NotAPattern: x ~> x
+reduce Unbound: Succ(n) ~> m
+reduce Undeclared: Pred(Succ(n)) ~> n
+expr Bad : Vec(Pred(Zero), Nat)
+
+-- Scope errors: the result type u is used outside the binder x, so a
+-- solution of u cannot mention x.
+rule Replicate:
+  n : Nat
+  x : a
+->
+  Replicate(n, x) : Vec(n, a)
+
+rule Weird:
+  t : Type
+  x : t |- body : u
+->
+  Weird(x, t, body) : u
+
+rule BadLet:
+  value : t
+  x : t |- body : u
+->
+  BadLet(x, value, body) : u
+
+infer Weird(n, Nat, Replicate(n, Zero))
+infer BadLet(k, Succ(Zero), Replicate(k, Zero))

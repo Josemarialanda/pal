@@ -63,7 +63,7 @@ main = do
 runFiles :: Options -> [FilePath] -> IO (Ctx, Bool)
 runFiles opts files = do
   (ctx, steps) <- foldM step (mempty, []) files
-  let expectations = [met | Step _ (Expected _ _ _ met) <- steps]
+  let expectations = [succeeded outcome | Step _ outcome <- steps, isCheck outcome]
       unmet = length (filter not expectations)
   unless (null expectations) . putStrLn $
     if unmet == 0
@@ -71,6 +71,10 @@ runFiles opts files = do
       else paint (outStyle opts) [Bold, Red] (show unmet <> " of " <> count (length expectations) "check" <> " failed")
   pure (ctx, all (succeeded . step'outcome) steps)
   where
+    isCheck = \case
+      Expected {} -> True
+      Tested {} -> True
+      _ -> False
     step (ctx, done) file =
       try (loadPalFileLocated file) >>= \case
         Left (e :: IOException) -> die (failure (errStyle opts) ("cannot read " <> file <> ": " <> show e) <> "\n")

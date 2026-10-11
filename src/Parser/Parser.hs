@@ -60,13 +60,21 @@ import Text.Megaparsec.Char
   )
 import qualified Text.Megaparsec.Char.Lexer as L
 import Types
-  ( Expr (..),
+  ( Brackets (..),
+    Expr,
     ExprDecl (ExprDecl),
     Hypothesis (..),
+    MetaProperty (..),
+    Mode (..),
     Premise (..),
-    Type (TCon, TVar),
+    Reduction (Reduction),
+    Term (..),
+    TermDef (..),
+    TestSpec (..),
+    Type,
     TypeDecl (TypeDecl),
-    TypingRule (TypingRule),
+    TypingRule (..),
+    pattern EVar,
   )
 
 -- | The base parser type for PAL programs.
@@ -119,6 +127,10 @@ keyword w = lexeme (try (string w <* notFollowedBy identChar))
 -- * @type@ declarations ('SType')
 -- * @expr@ declarations ('SExpr')
 -- * @rule@ definitions ('SRule')
+-- * @reduce@ definitions ('SReduce')
+-- * @value@ patterns ('SValue') and @test@ statements ('STest')
+-- * @find@ statements ('SFind')
+-- * @def@ definitions ('SDef')
 -- * @infer@ expressions ('SInfer')
 -- * @check@ expectations ('SCheck') and @fails@ expectations ('SFails')
 --
@@ -136,7 +148,7 @@ palProgramLocated = sc *> many located <* eof
       (stmt, spans) <- statement
       pure (Located start spans stmt)
     statement =
-      ((,Nothing) <$> (pType <|> pExpr <|> pRule))
+      ((,Nothing) <$> (pType <|> pExpr <|> pRule <|> pReduce <|> pDef <|> pValue <|> pTest <|> pFind))
         <|> pInfer
         <|> pCheck
         <|> pFails
@@ -160,25 +172,18 @@ pType = do
 -- Type parser
 ------------------------------------------------------------
 
--- | Parse a type constructor, possibly with parameters.
---
--- Examples:
+-- | Parse a type. A type is a term (see 'pExprApp'), so it can mention
+-- expressions, e.g.:
 --
 -- > Num
--- > Bool
 -- > List<Num>
 -- > Pair<Num, Bool>
+-- > Vec(Succ(n), a)
+-- > u[x := a]
 --
--- Produces nested 'TCon' terms. A lowercase identifier without type
--- arguments (e.g. @a@) is a type variable ('TVar').
+-- A lowercase identifier without arguments (e.g. @a@) is a type variable.
 pTypeExpr :: Parser Type
-pTypeExpr = do
-  name <- ident
-  args <- option [] (angles (pTypeExpr `sepBy` symbol ","))
-  pure $
-    case listToMaybe name of
-      Just c | null args && isLower c -> TVar name
-      _ -> TCon name args
+pTypeExpr = pExprApp
 
 ------------------------------------------------------------
 -- Expression declarations
@@ -213,7 +218,68 @@ pRule = do
   name <- ident
   _ <- symbol ":"
   premises <- manyTill pPremise (symbol "->")
-  SRule . TypingRule name premises <$> pConclusion
+  (\(mode, conclusion) -> SRule (TypingRuleWith name premises conclusion mode)) <$> pConclusion
+
+------------------------------------------------------------
+-- Reductions
+------------------------------------------------------------
+
+-- | Parse a reduction, e.g.:
+--
+-- > reduce Beta: App(Lam(x, t, body), a) ~> body[x := a]
+pReduce :: Parser PalStmt
+pReduce = do
+  _ <- keyword "reduce"
+  name <- ident
+  _ <- symbol ":"
+  lhs <- pExprApp
+  _ <- symbol "~>"
+  SReduce . Reduction name lhs <$> pExprApp
+
+------------------------------------------------------------
+-- Values and tests
+------------------------------------------------------------
+
+-- | Parse a value pattern, for the progress test, e.g.:
+--
+-- > value Succ(n)
+pValue :: Parser PalStmt
+pValue = keyword "value" *> (SValue <$> pExprApp)
+
+-- | Parse a test of the type system, with the number of terms to generate
+-- (5000 if it is not given), e.g.:
+--
+-- > test preservation
+-- > test progress 5000
+pTest :: Parser PalStmt
+pTest = do
+  _ <- keyword "test"
+  property <- (Preservation <$ keyword "preservation") <|> (Progress <$ keyword "progress")
+  n <- option defaultTestTerms (lexeme L.decimal)
+  pure (STest (TestSpec property n))
+
+-- | The number of terms that a test generates if the program does not say.
+defaultTestTerms :: Int
+defaultTestTerms = 5000
+
+-- | Parse a proof search, e.g.:
+--
+-- > find Implies<a, a>
+pFind :: Parser PalStmt
+pFind = keyword "find" *> (SFind <$> pTypeExpr)
+
+-- | Parse a definition, e.g.:
+--
+-- > def Two := Succ(Succ(Zero))
+pDef :: Parser PalStmt
+pDef = do
+  _ <- keyword "def"
+  name <- ident
+  case name of
+    c : _ | isLower c -> fail "the name of a definition starts with an uppercase letter, like a constructor"
+    _ -> pure ()
+  _ <- symbol ":="
+  SDef . TermDef name <$> pExprApp
 
 -- | Parse a single rule premise, either a plain judgment or one made under
 -- hypotheses (@⊢@ may also be written @|-@), e.g.:
@@ -230,42 +296,54 @@ pPremise = do
   hyps <- pHypothesis `sepBy1` symbol ","
   hasHypotheses <- option False (True <$ (symbol "|-" <|> symbol "⊢"))
   if hasHypotheses
-    then Premise hyps <$> pBinding
+    then
+      if all ((== Plain) . fst) hyps
+        then (\(m, j) -> PremiseWith m (fmap snd hyps) j) <$> pBinding
+        else fail "a hypothesis is written x : T (with ':')"
     else case hyps of
-      [Hypothesis e t False] -> pure (Premise [] (e, t))
+      [(m, Hypothesis e t False)] -> pure (PremiseWith m [] (e, t))
       [_] -> fail "'gen' is only allowed in hypotheses (before '|-')"
       _ -> fail "expected '|-' after a list of hypotheses"
 
 -- | Parse a hypothesis: a variable with its type, optionally marked @gen@.
+-- Alone, without @|-@, it is a premise, so it can have a mode (see
+-- 'pMode').
 --
 -- > x : a
 -- > x : gen a
-pHypothesis :: Parser Hypothesis
+-- > x => a
+pHypothesis :: Parser (Mode, Hypothesis)
 pHypothesis = do
   v <- ident
-  _ <- symbol ":"
-  generalize <- option False (True <$ keyword "gen")
-  Hypothesis (EVar v) <$> pTypeExpr <*> pure generalize
+  m <- pMode
+  generalize <- if m == Plain then option False (True <$ keyword "gen") else pure False
+  (\t -> (m, Hypothesis (EVar v) t generalize)) <$> pTypeExpr
 
--- | Parse a variable with its type, e.g.:
+-- | Parse a variable with its type and mode, e.g.:
 --
 -- > x : Num
-pBinding :: Parser (Expr, Type)
+-- > body <= b
+pBinding :: Parser (Mode, (Expr, Type))
 pBinding = do
   v <- ident
-  _ <- symbol ":"
+  m <- pMode
   t <- pTypeExpr
-  pure (EVar v, t)
+  pure (m, (EVar v, t))
 
--- | Parse the rule conclusion, e.g.:
+-- | Parse the mode of a judgment: @:@, @=>@ (synthesis) or @<=@ (checking).
+pMode :: Parser Mode
+pMode = (Synthesis <$ symbol "=>") <|> (Checking <$ symbol "<=") <|> (Plain <$ symbol ":")
+
+-- | Parse the rule conclusion with its mode, e.g.:
 --
 -- > Add(x, y) : Num
-pConclusion :: Parser (Expr, Type)
+-- > Lam(x, body) <= Arrow<a, b>
+pConclusion :: Parser (Mode, (Expr, Type))
 pConclusion = do
   e <- pExprApp
-  _ <- symbol ":"
+  m <- pMode
   t <- pTypeExpr
-  pure (e, t)
+  pure (m, (e, t))
 
 ------------------------------------------------------------
 -- Expression inference
@@ -306,22 +384,26 @@ pFails = do
 -- Expression applications
 ------------------------------------------------------------
 
--- | Parse an expression application, e.g.:
+-- | Parse a term (an expression or a type), e.g.:
 --
 -- > Add(x, y)
+-- > List<Num>
 --
--- or an atomic expression like:
+-- or an atomic term like:
 --
 -- > LitInt
 -- > x
 --
+-- The arguments go in @(…)@ or @\<…\>@; both give the same term. A term can
+-- end with substitutions, e.g. @u[x := a]@.
+--
 -- Uses the convention:
--- * lowercase identifiers → 'EVar'
--- * uppercase identifiers → 'ECon'
+-- * lowercase identifiers → 'Var'
+-- * uppercase identifiers → 'Con'
 pExprApp :: Parser Expr
 pExprApp = fst <$> pExprAppLocated
 
--- | Like 'pExprApp', also returning the span of the expression and of each
+-- | Like 'pExprApp', also returning the span of the term and of each
 --   argument (excluding trailing whitespace and comments).
 pExprAppLocated :: Parser (Expr, SpanTree)
 pExprAppLocated = do
@@ -329,19 +411,33 @@ pExprAppLocated = do
   name <- (:) <$> letterChar <*> many identChar
   nameEnd <- getOffset
   sc
-  (args, end) <- option ([], nameEnd) $ do
-    _ <- symbol "("
-    args <- pExprAppLocated `sepBy` symbol ","
-    _ <- string ")"
-    end <- getOffset
-    sc
-    pure (args, end)
-  let expr = case listToMaybe name of
+  (brackets, args, end) <- option (Parens, [], nameEnd) (arguments Parens "(" ")" <|> arguments Angles "<" ">")
+  let term = case listToMaybe name of
         Just c
-          | null args && isLower c -> EVar name
-          | otherwise -> ECon name (fmap fst args)
-        Nothing -> ECon name (fmap fst args) -- defensive; identifiers are never empty
-  pure (expr, SpanTree (Span start end) (fmap snd args))
+          | null args && isLower c -> Var name
+          | otherwise -> Con brackets name (fmap fst args)
+        Nothing -> Con brackets name (fmap fst args) -- defensive; identifiers are never empty
+  substitutions start (term, SpanTree (Span start end) (fmap snd args))
+  where
+    arguments brackets open close = do
+      -- `<` must not be the start of `<=` (a checking judgment).
+      _ <- try (string open <* notFollowedBy (char '=')) <* sc
+      args <- pExprAppLocated `sepBy` symbol ","
+      _ <- string close
+      end <- getOffset
+      sc
+      pure (brackets, args, end)
+    -- Postfix substitutions: @t[x := e]@, @t[x := e][y := f]@, …
+    substitutions start located@(body, _) =
+      option located $ do
+        _ <- symbol "["
+        var <- pExprApp
+        _ <- symbol ":="
+        replacement <- pExprApp
+        _ <- string "]"
+        end <- getOffset
+        sc
+        substitutions start (Subst body var replacement, SpanTree (Span start end) [])
 
 ------------------------------------------------------------
 -- Helpers

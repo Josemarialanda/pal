@@ -1,0 +1,53 @@
+-- Bidirectional typing: `e => T` infers (synthesises) the type of e, and
+-- `e <= T` checks e against a known T. A rule with a checking conclusion is
+-- used only when the expected type is known, so an unannotated lambda
+-- needs an annotation (Ann) or an expected type.
+
+type Bool
+type Arrow<a, b>
+
+expr True  : Bool
+expr False : Bool
+
+rule Ann:
+  e <= t
+->
+  Ann(e, t) => t
+
+rule Lam:
+  x : a |- body <= b
+->
+  Lam(x, body) <= Arrow<a, b>
+
+rule App:
+  f => Arrow<a, b>
+  x <= a
+->
+  App(f, x) => b
+
+rule If:
+  c <= Bool
+  t <= a
+  e <= a
+->
+  If(c, t, e) <= a
+
+-- A lambda checks against a known type, in both directions of the arrow.
+check Lam(x, x) : Arrow<Bool, Bool>
+check Lam(x, x) : Arrow<b, b>
+check Lam(f, Lam(x, App(f, x))) : Arrow<Arrow<Bool, Bool>, Arrow<Bool, Bool>>
+fails Lam(x, x)
+
+-- An annotation turns checking into synthesis.
+check Ann(Lam(x, x), Arrow<Bool, Bool>) : Arrow<Bool, Bool>
+check App(Ann(Lam(x, x), Arrow<Bool, Bool>), True) : Bool
+
+-- The argument of App is checked, so it can be a lambda.
+check App(Ann(Lam(f, App(f, True)), Arrow<Arrow<Bool, Bool>, Bool>), Lam(y, y)) : Bool
+
+-- The function of App is synthesised, so it cannot be a bare lambda.
+fails App(Lam(x, x), True)
+
+-- Checking still finds type errors.
+fails Ann(Lam(x, If(x, True, Lam(y, y))), Arrow<Bool, Bool>)
+fails Ann(Lam(x, x), Arrow<Bool, Arrow<Bool, Bool>>)

@@ -10,4 +10,10 @@
     at tests/fail/definitions.pal:13:1
 ✓ fails W(True)  (Unknown expression → W)
 ✓ fails Not  (Unknown expression → Not)
+✗ def Bad rejected: the body of Bad has no type: Unknown expression → Weird
+    at tests/fail/definitions.pal:23:1
+✗ def True rejected: True is already declared
+    at tests/fail/definitions.pal:24:1
+⚠ rule IsTrueAgain hides rule IsTrue: both are for IsTrue with 1 argument, and PAL uses only the newest
+⚠ reduction IsTrueAny overlaps reduction IsTrueTrue: a term can match both left sides, and PAL uses IsTrueTrue, the first
 2 checks passed

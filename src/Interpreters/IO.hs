@@ -32,14 +32,16 @@ module Interpreters.IO
 where
 
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isNothing)
 import qualified Interpreters.Common.Actions as Actions
+import qualified Interpreters.Common.Expectations as Expectations
+import qualified Interpreters.Common.Metatheory as Metatheory
 import Polysemy (Embed, Members, Sem, embed, interpret, runM)
 import Polysemy.State (State, get, runState)
 import Pretty (Style, plain, prettyResult)
 import Program (Outcome (..), PalAction (..), runPalAction)
 import Report (Report (..), defaultReport, reportOutcome)
-import Types (Ctx, Derivation (..), Err, Expr, Failure (..), PAL (..), Type)
+import Types (Ctx, Derivation (..), Err, Expr, Failure (..), PAL (..), TestResult (..), Type)
 
 --------------------------------------------------------------------------------
 
@@ -111,12 +113,19 @@ interpreter opts = interpret $ \case
   DefineType td -> define (ADefineType td) (Actions.defineType td)
   DefineExpr ed -> define (ADefineExpr ed) (Actions.defineExpr ed)
   DefineRule tr -> define (ADefineRule tr) (Actions.defineRule tr)
+  DefineReduction rd -> define (ADefineReduction rd) (Actions.defineReduction rd)
+  DefineValue v -> define (ADefineValue v) (Actions.defineValue v)
+  DefineTerm d -> define (ADefineTerm d) (Actions.defineTerm d)
+  Test spec -> do
+    result <- (`Metatheory.runTest` spec) <$> get
+    say (ATest spec) (Tested result)
+    pure (isNothing (test'counterexample result))
   Infer e -> do
     result <- (`Actions.inferDetailed` e) <$> get
     say (AInfer e) (Inferred result)
     pure (either (Left . failure'err . NE.head) (Right . deriv'type) result)
   Expect x -> do
-    (diagnostics, result, met) <- (`Actions.checkExpectation` x) <$> get
+    (diagnostics, result, met) <- (`Expectations.checkExpectation` x) <$> get
     say (AExpect x) (Expected x diagnostics result met)
     pure met
   where

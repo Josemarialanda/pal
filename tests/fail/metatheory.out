@@ -1,0 +1,9 @@
+✗ test preservation — Lam(x, Fst(Pair(False, x))) : Arrow<a, Bool> reduces to Lam(x, x) : Arrow<a, a>
+    at tests/fail/metatheory.pal:46:1
+✗ test progress — Not(False) : Bool does not reduce, and no value pattern matches it
+    at tests/fail/metatheory.pal:54:1
+✗ value x rejected: the value pattern x must be a constructor applied to its parts, like Succ(n)
+    at tests/fail/metatheory.pal:57:1
+✗ value Missing(y) rejected: undeclared constructor Missing (declare it first with a rule for Missing(a))
+    at tests/fail/metatheory.pal:58:1
+2 of 2 checks failed

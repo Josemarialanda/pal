@@ -1,0 +1,41 @@
+✗ App(Lam(v, Vec(Succ(Succ(Zero)), Nat), v), VCons(Zero, VNil)) -> [Error] Type mismatch: expected Succ(Zero), got Zero
+    at tests/fail/dependent.pal:46:50
+       |
+    46 | infer App(Lam(v, Vec(Succ(Succ(Zero)), Nat), v), VCons(Zero, VNil))
+       |                                                  ^^^^^^^^^^^^^^^^^
+    in rule App, premise a : Vec(Succ(Succ(Zero)), Nat)  (checking VCons(Zero, VNil))
+✗ check VCons(Zero, VNil) : Vec(Zero, Nat) — inferred Vec(Succ(Zero), Nat)
+    at tests/fail/dependent.pal:47:1
+✗ Succ(App(Anything, Zero)) -> [Error] Stuck substitution: a[b := Zero] (its body is not known)
+    at tests/fail/dependent.pal:51:12
+       |
+    51 | infer Succ(App(Anything, Zero))
+       |            ^^^^^^^^^^^^^^^^^^^
+    in rule Succ, premise n : Nat  (checking App(Anything, Zero))
+✗ App(Lam(v, Vec(Loop, Nat), v), VCons(Zero, VNil)) -> [Error] Reduction limit: Loop does not stop reducing
+    at tests/fail/dependent.pal:56:38
+       |
+    56 | infer App(Lam(v, Vec(Loop, Nat), v), VCons(Zero, VNil))
+       |                                      ^^^^^^^^^^^^^^^^^
+    in rule App, premise a : Vec(Loop, Nat)  (checking VCons(Zero, VNil))
+✗ reduce NotAPattern rejected: the left side of reduction NotAPattern must be a constructor applied to its parts, like F(x, y)
+    at tests/fail/dependent.pal:59:1
+✗ reduce Unbound rejected: variable m of reduction Unbound does not appear in its left side Succ(n)
+    at tests/fail/dependent.pal:60:1
+✗ reduce Undeclared rejected: undeclared constructor Pred (declare it first with a rule for Pred(a))
+    at tests/fail/dependent.pal:61:1
+✗ expr Bad rejected: undeclared constructor Pred (declare it first with a rule for Pred(a))
+    at tests/fail/dependent.pal:62:1
+✗ Weird(n, Nat, Replicate(n, Zero)) -> [Error] Scope error: n escapes its binder in Vec(n, Nat)
+    at tests/fail/dependent.pal:84:21
+       |
+    84 | infer Weird(n, Nat, Replicate(n, Zero))
+       |                     ^^^^^^^^^^^^^^^^^^
+    in rule Weird, premise x : Nat ⊢ body : a  (checking Replicate(n, Zero))
+✗ BadLet(k, Succ(Zero), Replicate(k, Zero)) -> [Error] Scope error: k escapes its binder in Vec(k, Nat)
+    at tests/fail/dependent.pal:85:29
+       |
+    85 | infer BadLet(k, Succ(Zero), Replicate(k, Zero))
+       |                             ^^^^^^^^^^^^^^^^^^
+    in rule BadLet, premise x : Nat ⊢ body : a  (checking Replicate(k, Zero))
+1 of 1 check failed

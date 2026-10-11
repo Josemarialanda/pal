@@ -82,3 +82,8 @@ check Lam(x, Lam(y, Fst(App(x, y)))) : Implies<Implies<a, And<b, c>>, Implies<a,
 
 -- Expected failure: self-application proves no finite proposition.
 fails Lam(p, App(p, p))  -- infinite type
+
+-- Proof search: PAL looks for a proof term of each proposition.
+find Implies<And<a, Or<b, c>>, Or<And<a, b>, And<a, c>>>          -- ∧ distributes over ∨
+find Implies<Implies<a, b>, Implies<Implies<b, c>, Implies<a, c>>>  -- → is transitive
+find Implies<Or<a, b>, Or<b, a>>                                    -- ∨ commutes

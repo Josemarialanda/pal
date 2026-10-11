@@ -45,9 +45,15 @@ The dev shell's `pal` and `pal-ui` rebuild from your working tree first, so they
 | `type T`, `type T<a, b>`            | Declare a type, with its parameters                       |
 | `expr C : T`                        | Axiom: constant `C` has type `T`                          |
 | `rule Name:` *premises* `->` *conclusion* | Inference rule                                      |
+| `reduce Name: lhs ~> rhs`           | Reduction: a term that matches `lhs` is equal to `rhs`    |
+| `def Name := e`                     | Definition: `Name` is a constant with the type of `e`, and it reduces to `e` |
 | `infer e`                           | Infer the type of `e`                                     |
 | `check e : T`                       | Expect `e` to have type `T` (type variables may be renamed) |
 | `fails e`                           | Expect `e` to be a type error                             |
+| `find T`                            | Proof search: find a term of type `T`                     |
+| `value P`                           | Declare a pattern of values, e.g. `value Succ(n)` (for `test progress`) |
+| `test preservation [N]`             | Test that reduction keeps the type, on N generated terms (default 5000) |
+| `test progress [N]`                 | Test that a well-typed term that does not reduce is a value |
 
 Premises come in four shapes:
 
@@ -58,14 +64,88 @@ x : A, y : B |- e : C    -- several hypotheses
 x : gen A |- body : B    -- generalised: x is polymorphic in body (let-polymorphism)
 ```
 
+**Bidirectional typing.** A judgment can have a direction: `e => T` infers (synthesises) the type of `e`, and `e <= T` checks `e` against a known `T`. A plain `e : T` premise checks too. For a rule without a direction, checking falls back to inference, so plain rules work as before.
+
+```haskell
+rule Lam:                        rule App:
+  x : a |- body <= b               f => Arrow<a, b>
+->                                 x <= a
+  Lam(x, body) <= Arrow<a, b>    ->
+                                   App(f, x) => b
+```
+
+- A rule with a `<=` conclusion is used only when the expected type is known. PAL unifies the expected type with the conclusion type first, then checks the premises.
+- Where a type must be inferred (`infer e`, or a `=>` premise), such a term gives `Cannot infer the type of Lam(x, x)`.
+- `check e : T` checks `e` against `T` when its type cannot be inferred. [`tests/pass/bidirectional.pal`](tests/pass/bidirectional.pal) is a complete example, with an annotation rule `Ann(e, t) => t`.
+
 **Naming:** `Uppercase` is a constructor or concrete type (`Add(x, y)`, `Maybe<Num>`). `lowercase` is a variable or type variable (`x`, `a`). Comments start with `--`.
 
-**Definitions are checked.** A definition is rejected (with a reason, and `pal` exits 1) if it uses a type that wasn't declared, gives a type the wrong number of arguments, or is a rule whose premise uses a variable that its conclusion doesn't bind:
+**Dependent types.** Expressions and types are the same terms. `C(…)` and `C<…>` are equal, and PAL shows each term with the brackets that you wrote. Thus a type can mention an expression, and rules can check types:
+
+```haskell
+rule Replicate:                 rule Pi:
+  n : Nat                         t : Type
+  x : a                           x : t |- u : Type
+->                              ->
+  Replicate(n, x) : Vec(n, a)     Pi(x, t, u) : Type
+
+rule App:                       reduce Beta: App(Lam(x, t, body), a) ~> body[x := a]
+  f : Pi(x, t, u)
+  a : t
+->
+  App(f, a) : u[x := a]
+```
+
+- In a rule, a variable of the conclusion (`n` above) stands for the matched expression, also in the types. Each other lowercase variable is a type variable.
+- `u[x := a]` is `u` with `a` in place of `x`. PAL applies it when it knows `u`.
+- PAL gets the binders from the rules. The premise `x : t |- u : Type` of the rule for `Pi(x, t, u)` tells PAL that `x` is bound in `u`. Substitution does not capture variables, and types are equal up to the names of bound variables.
+- Types are equal up to the `reduce` statements. PAL stops a reduction after 10 000 steps.
+- `def Two := Succ(Succ(Zero))` gives a name to a term. PAL infers the type of the body, adds `Two` as a constant of that type, and adds the reduction `Two ~> Succ(Succ(Zero))`. So a definition can also name a type, such as `def Vec2 := Vec(Two, Nat)`.
+- A unification with `u[x := a]`, where `u` is still unknown, waits until a later premise solves `u`. If `u` stays unknown, PAL reports a stuck substitution (PAL does no higher-order unification).
+- A variable cannot escape its binder. For example, in a rule with the conclusion `Weird(x, t, body) : u` and the premise `x : t |- body : u`, the type `u` cannot mention `x`, because `u` is also used outside `x`. Write `u[x := …]` to remove `x`.
+- Limits: PAL does not check that reductions terminate or are confluent, and it accepts `Type : Type`.
+
+[`lambda-pi.pal`](examples/programs/lambda-pi.pal) is a complete example.
+
+**Metatheory tests.** `test preservation` and `test progress` check two classic properties of your type system:
+
+- PAL generates random closed terms from the constructors of your `expr` declarations and rules, and keeps the ones that have a type. It takes most arguments from the terms that it already found, chosen so that their types fit the premises.
+- **Preservation:** each one-step reduct of a term `e : T` must have a type that is at least as general as `T`.
+- **Progress:** each term that does not reduce must match a `value` pattern.
+- PAL reports the smallest counterexample. The generator has a fixed seed, so the result is the same every time.
+
+```text
+✗ test preservation — Lam(x, Fst(Pair(False, x))) : Arrow<a, Bool> reduces to Lam(x, x) : Arrow<a, a>
+✗ test progress — Not(False) : Bool does not reduce, and no value pattern matches it
+```
+
+A test that passes is evidence, not a proof: it checks only the terms that PAL generated.
+
+**Proof search.** `find T` looks for a closed term of type `T`. With types as propositions ([`logic.pal`](examples/programs/logic.pal)), the term is a proof:
+
+```text
+✓ find Implies<And<a, Or<b, c>>, Or<And<a, b>, And<a, c>>> — Lam(x, Case(Snd(x), y, Inl(Pair(Fst(x), y)), z, Inr(Pair(Fst(x), z))))
+✗ find Or<a, Implies<a, False>> — no term of this type found (the search goes 6 rules deep)
+```
+
+- The search works backwards from `T`: it tries the variables in scope, the constants, and the rules whose conclusion type unifies with the goal. The premises become new goals.
+- It looks only for normal terms. An elimination rule (a rule whose conclusion type is a variable, like `Fst(p) : a`) is applied only to a variable, a constant or another elimination.
+- It deepens step by step up to 6 rules, so it finds a small term first. PAL checks the term with the type checker before it shows it.
+- If the search finds nothing, that is not a proof that no term exists.
+
+**Definitions are checked.** A definition is rejected (with a reason, and `pal` exits 1) if it uses a type that wasn't declared, gives a type the wrong number of arguments, or is a rule whose premise uses a variable that its conclusion doesn't bind. In a type, a constructor is declared by `type`, by `expr` or by the conclusion of a rule:
 
 ```text
 ✗ expr Not rejected: undeclared type Bol (did you mean Bool?)
 ✗ expr Id rejected: Arrow takes 2 type arguments, but is given 1
 ✗ rule Weird rejected: premise variable z does not appear in the conclusion W(x)
+
+**Overlaps are warnings.** PAL uses only the newest rule for a constructor and a number of arguments (in each direction), and the first reduction that matches. So it warns when a new rule hides an older one, or when two reductions can match the same term. The definition is still added:
+
+```text
+⚠ rule IsTrueAgain hides rule IsTrue: both are for IsTrue with 1 argument, and PAL uses only the newest
+⚠ reduction IsTrueAny overlaps reduction IsTrueTrue: a term can match both left sides, and PAL uses IsTrueTrue, the first
+```
 ```
 
 **Errors** point at the part of the expression at fault and list the premises being checked. Every independent error is reported, not just the first:
@@ -92,6 +172,10 @@ x : gen A |- body : B    -- generalised: x is polymorphic in body (let-polymorph
 | `Unknown expression`     | No rule, no `expr`, and not a bound variable           |
 | `Infinite type`          | A type would contain itself (`a ~ Arrow<a, b>`)        |
 | `No typing rule matched` | A constant was given arguments                         |
+| `Stuck substitution`     | In `u[x := e]`, `u` is still unknown                   |
+| `Reduction limit`        | The reductions of a term do not stop                   |
+| `Cannot infer`           | A term that only checks (a `<=` rule) is where a type must be inferred |
+| `Scope error`            | A variable would be used outside its binder            |
 
 **Derivations.** On success PAL has built a derivation tree, the proof that the expression has its type. `pal --derivations`, the REPL's `:derive` and the web UI draw it:
 
@@ -143,6 +227,8 @@ pal❯ Not(True)
 - Results are highlighted like the REPL's, rules are drawn as inference rules, and rejected definitions and unmet `check` / `fails` are flagged.
 - Open **derivation** under a result to see its derivation tree, or copy it as LaTeX.
 - Your program is saved in the browser between visits.
+- The **Examples** menu loads any program from [`examples/programs/`](examples/programs/).
+- **Share** copies a link that opens your program. The program is in the link itself (after `#`), so the server never sees it.
 - The theme menu offers every [Tinted Theming](https://github.com/tinted-theming/schemes) colour scheme (base16, base24 and tinted8, vendored in [`ui/themes/`](ui/themes/)).
 
 | Flag        | Effect                                                       |
@@ -167,6 +253,7 @@ A public copy runs at <https://pal-ui.vercel.app> (from `main`) and <https://pal
 | [`lists.pal`](examples/programs/lists.pal)       | Polymorphic lists with `Fold`                  |
 | [`hm.pal`](examples/programs/hm.pal)             | Hindley–Milner (let-polymorphism)              |
 | [`logic.pal`](examples/programs/logic.pal)       | Propositional logic via Curry–Howard           |
+| [`lambda-pi.pal`](examples/programs/lambda-pi.pal) | Dependent types (λΠ) with `Vec` and β-reduction |
 
 ```sh
 run-examples --list              # everything, including the Haskell examples
@@ -176,16 +263,22 @@ run-examples --trace dsl/maybe   # every step, with context dumps
 
 ## Using PAL from Haskell
 
-A PAL program is a [Polysemy](https://hackage.haskell.org/package/polysemy) effect with five operations:
+A PAL program is a [Polysemy](https://hackage.haskell.org/package/polysemy) effect with nine operations:
 
 ```haskell
 data PAL m a where
-  DefineType :: TypeDecl   -> PAL m ()
-  DefineExpr :: ExprDecl   -> PAL m ()
-  DefineRule :: TypingRule -> PAL m ()
-  Infer      :: Expr       -> PAL m (Either Err Type)
-  Expect     :: Expectation -> PAL m Bool             -- check e : T / fails e
+  DefineType      :: TypeDecl    -> PAL m ()
+  DefineExpr      :: ExprDecl    -> PAL m ()
+  DefineRule      :: TypingRule  -> PAL m ()
+  DefineReduction :: Reduction   -> PAL m ()
+  DefineValue     :: Term        -> PAL m ()             -- value P
+  DefineTerm      :: TermDef     -> PAL m ()             -- def Name := e
+  Infer           :: Expr        -> PAL m (Either Err Type)
+  Expect          :: Expectation -> PAL m Bool           -- check e : T / fails e / find T
+  Test            :: TestSpec    -> PAL m Bool           -- test preservation / progress
 ```
+
+`Expr` and `Type` are both names for `Term` (`Var`, `Con`, `Subst`). The pattern synonyms `ECon`/`EVar` and `TCon`/`TVar` build a constructor with `(…)` or `<…>` brackets. `TypingRule` and `Premise` are pattern synonyms for a rule and a premise with plain judgments (`:`); `TypingRuleWith` and `PremiseWith` also take a `Mode` (`Plain`, `Synthesis`, `Checking`).
 
 You can write programs three ways. All of them run on the same engine:
 
@@ -214,7 +307,7 @@ Run a program with one of three interpreters:
 | `format` / `nix fmt`      | Format Haskell sources with ormolu         |
 | `format --check`          | Fail if anything is unformatted            |
 | `run-examples`            | Build and run the examples                 |
-| `run-tests`               | Run the regression tests ([`tests/`](tests/)) |
+| `run-tests`               | Run the regression tests ([`tests/`](tests/)) and the property tests of the engine |
 | `run-tests --accept`      | Also rewrite `tests/fail/*.out` from the current output |
 | `nix flake check`         | Run the tests against a sandboxed build    |
 
@@ -222,6 +315,8 @@ Run a program with one of three interpreters:
 | -------------------------------------------------------------------------- | -------------------------------- |
 | [`src/Types.hs`](src/Types.hs)                                             | Types, terms, rules, the effect  |
 | [`src/Interpreters/Common/Actions.hs`](src/Interpreters/Common/Actions.hs) | Inference, unification, derivations, definition checks |
+| [`src/Interpreters/Common/`](src/Interpreters/Common/) | Also `Expectations` (check, fails, find), `Search` (proof search) and `Metatheory` (preservation and progress tests) |
+| [`tests/properties/`](tests/properties/) | Property tests of the engine (QuickCheck) |
 | [`src/Program.hs`](src/Program.hs), [`src/Report.hs`](src/Report.hs)       | Running statements step by step; reporting outcomes |
 | [`tests/`](tests/)                                                           | `pass/` must succeed; `fail/` must fail with the output in its `.out` file |
 | [`src/Parser/`](src/Parser/)                                               | Syntax and quasiquoter           |

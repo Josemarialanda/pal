@@ -12,13 +12,17 @@
 module Interpreters.Core where
 
 import Control.Monad (void)
+import Data.Maybe (isNothing)
 import qualified Interpreters.Common.Actions as Actions
+import qualified Interpreters.Common.Expectations as Expectations
+import qualified Interpreters.Common.Metatheory as Metatheory
 import Polysemy (Members, Sem, interpret, run)
 import Polysemy.State (State, evalState, get, runState)
 import Types
   ( Ctx,
     Err,
     PAL (..),
+    TestResult (..),
     Type,
   )
 
@@ -76,5 +80,9 @@ interpreter = interpret $ \case
   DefineType td -> void (Actions.defineType td)
   DefineExpr ed -> void (Actions.defineExpr ed)
   DefineRule tr -> void (Actions.defineRule tr)
+  DefineReduction rd -> void (Actions.defineReduction rd)
+  DefineValue v -> void (Actions.defineValue v)
+  DefineTerm d -> void (Actions.defineTerm d)
   Infer e -> Actions.infer e <$> get
-  Expect x -> (\ctx -> let (_, _, met) = Actions.checkExpectation ctx x in met) <$> get
+  Expect x -> (\ctx -> let (_, _, met) = Expectations.checkExpectation ctx x in met) <$> get
+  Test spec -> (\ctx -> isNothing (test'counterexample (Metatheory.runTest ctx spec))) <$> get

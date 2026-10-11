@@ -1,0 +1,11 @@
+✗ find a — no term of this type found (the search goes 6 rules deep)
+    at tests/fail/search.pal:29:1
+✗ find Implies<a, b> — no term of this type found (the search goes 6 rules deep)
+    at tests/fail/search.pal:30:1
+✗ find Or<a, Implies<a, False>> — no term of this type found (the search goes 6 rules deep)
+    at tests/fail/search.pal:31:1
+✗ find Implies<Implies<Implies<a, b>, a>, a> — no term of this type found (the search goes 6 rules deep)
+    at tests/fail/search.pal:32:1
+✗ find Undeclared<a> — undeclared type Undeclared (declare it first: type Undeclared<a>)
+    at tests/fail/search.pal:33:1
+5 of 5 checks failed

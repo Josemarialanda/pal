@@ -24,6 +24,7 @@ examples =
     fileExample "lists.pal" "Polymorphic lists: Nil, Cons, Head, Fold",
     fileExample "hm.pal" "Hindley–Milner with let-polymorphism (x : gen a)",
     fileExample "logic.pal" "Propositional logic via Curry–Howard: proofs as terms",
+    fileExample "lambda-pi.pal" "Dependent types (λΠ): Pi, Lam, App, Vec and β-reduction",
     fileExample "broken.pal" "A file with a syntax error, to show runtime parse errors"
   ]
   where

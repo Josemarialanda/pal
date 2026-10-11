@@ -10,19 +10,23 @@ import Examples.Types (Example, pureExample)
 import Polysemy (Member, Sem)
 import Types
   ( Err,
-    Expr (..),
+    Expr,
     ExprDecl (..),
     PAL,
-    Premise (..),
-    Type (..),
+    Type,
     TypeDecl (..),
-    TypingRule (..),
     defineExpr,
     defineRule,
     defineType,
     hyp,
     infer,
     premise,
+    pattern ECon,
+    pattern EVar,
+    pattern Premise,
+    pattern TCon,
+    pattern TVar,
+    pattern TypingRule,
   )
 
 examples :: [Example]

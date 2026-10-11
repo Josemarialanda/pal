@@ -1,0 +1,33 @@
+-- Proof search finds no proof of a statement that is not a theorem of
+-- intuitionistic propositional logic.
+
+type Implies<a, b>
+type Or<a, b>
+type False
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Implies<a, b>
+
+rule App:
+  f : Implies<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Inl:
+  x : a
+->
+  Inl(x) : Or<a, b>
+
+rule Inr:
+  x : b
+->
+  Inr(x) : Or<a, b>
+
+find a
+find Implies<a, b>
+find Or<a, Implies<a, False>>   -- excluded middle
+find Implies<Implies<Implies<a, b>, a>, a>   -- Peirce's law
+find Undeclared<a>

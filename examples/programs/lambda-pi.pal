@@ -1,0 +1,119 @@
+-- λΠ: dependent types, written as ordinary PAL rules.
+--
+-- Expressions and types are the same terms, so a type can mention an
+-- expression (`Vec(n, a)` is the type of vectors of length n). Rules check
+-- types like any other term (`Pi(x, t, u) : Type`).
+--
+--   Pi(x, t, u)       Π x : t. u     the type of dependent functions
+--   Lam(x, t, body)   λ x : t. body
+--   App(f, a)         f a            its type is u[x := a]: u with a for x
+--
+-- PAL reads from the rules that Pi and Lam bind x in their last argument,
+-- and compares types up to the names of bound variables. `reduce` adds
+-- computation: types that reduce to the same term are equal.
+
+expr Type : Type   -- a universe (inconsistent as a logic, fine for a sandbox)
+expr Nat  : Type
+expr Zero : Nat
+
+rule Succ:
+  n : Nat
+->
+  Succ(n) : Nat
+
+rule Plus:
+  m : Nat
+  n : Nat
+->
+  Plus(m, n) : Nat
+
+reduce PlusZero: Plus(Zero, n) ~> n
+reduce PlusSucc: Plus(Succ(m), n) ~> Succ(Plus(m, n))
+
+-- Vectors: a family of types indexed by their length.
+rule Vec:
+  n : Nat
+  a : Type
+->
+  Vec(n, a) : Type
+
+expr VNil : Vec(Zero, a)
+
+rule VCons:
+  x  : a
+  xs : Vec(n, a)
+->
+  VCons(x, xs) : Vec(Succ(n), a)
+
+rule Replicate:
+  n : Nat
+  x : a
+->
+  Replicate(n, x) : Vec(n, a)
+
+rule Append:
+  xs : Vec(m, a)
+  ys : Vec(n, a)
+->
+  Append(xs, ys) : Vec(Plus(m, n), a)
+
+reduce ReplicateZero: Replicate(Zero, x) ~> VNil
+reduce ReplicateSucc: Replicate(Succ(n), x) ~> VCons(x, Replicate(n, x))
+reduce AppendNil:     Append(VNil, ys) ~> ys
+reduce AppendCons:    Append(VCons(x, xs), ys) ~> VCons(x, Append(xs, ys))
+
+-- Dependent functions.
+rule Pi:
+  t : Type
+  x : t |- u : Type
+->
+  Pi(x, t, u) : Type
+
+rule Lam:
+  t : Type
+  x : t |- body : u
+->
+  Lam(x, t, body) : Pi(x, t, u)
+
+rule App:
+  f : Pi(x, t, u)
+  a : t
+->
+  App(f, a) : u[x := a]
+
+reduce Beta: App(Lam(x, t, body), a) ~> body[x := a]
+
+infer Pi(n, Nat, Vec(n, Nat))                            -- Type
+infer Lam(n, Nat, Replicate(n, Zero))                    -- Pi(n, Nat, Vec(n, Nat))
+infer App(Lam(n, Nat, Replicate(n, Zero)), Succ(Zero))   -- Vec(Succ(Zero), Nat)
+infer Append(VCons(Zero, VNil), VCons(Zero, VNil))       -- Vec(Succ(Succ(Zero)), Nat)
+
+-- Polymorphism is a Π over Type.
+check Lam(a, Type, Lam(x, a, x)) : Pi(a, Type, Pi(x, a, a))
+check App(App(Lam(a, Type, Lam(x, a, x)), Nat), Zero) : Nat
+
+-- Bound names do not matter.
+check Lam(n, Nat, Replicate(n, Zero)) : Pi(m, Nat, Vec(m, Nat))
+
+-- Plus(1, 1) reduces to 2, so this vector fits a parameter of type Vec(2, Nat).
+check App(Lam(v, Vec(Succ(Succ(Zero)), Nat), v), Append(VCons(Zero, VNil), VCons(Zero, VNil))) : Vec(Succ(Succ(Zero)), Nat)
+
+-- The length is part of the type.
+fails App(Lam(v, Vec(Succ(Zero), Nat), v), Append(VCons(Zero, VNil), VCons(Zero, VNil)))
+fails App(App(Lam(a, Type, Lam(x, a, x)), Nat), Nat)
+
+-- Metatheory: PAL generates well-typed terms and checks that reduction
+-- keeps their types (preservation), and that a term that does not reduce
+-- is one of these values (progress).
+value Type
+value Nat
+value Zero
+value Succ(n)
+value Vec(n, a)
+value VNil
+value VCons(x, xs)
+value Pi(x, t, u)
+value Lam(x, t, body)
+
+test preservation
+test progress

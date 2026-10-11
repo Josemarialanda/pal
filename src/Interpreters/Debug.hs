@@ -30,11 +30,14 @@
 module Interpreters.Debug where
 
 import qualified Data.List.NonEmpty as NE
+import Data.Maybe (isNothing)
 import qualified Interpreters.Common.Actions as Actions
+import qualified Interpreters.Common.Expectations as Expectations
+import qualified Interpreters.Common.Metatheory as Metatheory
 import Polysemy (Embed, Members, Sem, interpret, run, runM)
 import Polysemy.State (State, evalState, get)
 import Polysemy.Trace (Trace, runTraceList, trace, traceToStdout)
-import Types (Ctx, Derivation (..), Diagnostic (..), Err, Failure (..), PAL (..), Severity (..), Type)
+import Types (Ctx, Derivation (..), Diagnostic (..), Err, Expectation (..), Failure (..), PAL (..), Severity (..), TestResult (..), Type)
 
 --------------------------------------------------------------------------------
 
@@ -118,6 +121,11 @@ interpreter = interpret $ \case
     Actions.defineRule tr >>= traceDiagnostics
     ctx <- get @Ctx
     trace $ show ctx
+  DefineReduction rd -> do
+    trace $ "[PAL] Defining reduction: " <> show rd
+    Actions.defineReduction rd >>= traceDiagnostics
+    ctx <- get @Ctx
+    trace $ show ctx
   Infer e -> do
     trace $ "[PAL] Inferring type for expression: " <> show e
     ctx <- get
@@ -128,14 +136,38 @@ interpreter = interpret $ \case
         Left err -> "[PAL] ✗ " <> show e <> " -> " <> show err
     trace $ show ctx
     pure r
+  DefineTerm d -> do
+    trace $ "[PAL] Defining: " <> show d
+    Actions.defineTerm d >>= traceDiagnostics
+    ctx <- get @Ctx
+    trace $ show ctx
+  DefineValue v -> do
+    trace $ "[PAL] Defining value: " <> show v
+    Actions.defineValue v >>= traceDiagnostics
+    ctx <- get @Ctx
+    trace $ show ctx
+  Test spec -> do
+    trace $ "[PAL] Testing: " <> show spec
+    result <- (`Metatheory.runTest` spec) <$> get
+    let ok = isNothing (test'counterexample result)
+    trace $
+      (if ok then "[PAL] ✓ " else "[PAL] ✗ ")
+        <> show spec
+        <> " ("
+        <> show (test'checked result)
+        <> " terms)"
+        <> maybe "" (\c -> ": " <> show c) (test'counterexample result)
+    pure ok
   Expect x -> do
     trace $ "[PAL] Checking: " <> show x
     ctx <- get
-    let (diagnostics, r, met) = Actions.checkExpectation ctx x
+    let (diagnostics, r, met) = Expectations.checkExpectation ctx x
     traceDiagnostics diagnostics
     trace $
       (if met then "[PAL] ✓ " else "[PAL] ✗ ") <> show x <> case r of
-        Right d -> " (inferred " <> show (deriv'type d) <> ")"
+        Right d -> case x of
+          ExpectInhabited _ -> " (found " <> show (deriv'expr d) <> ")"
+          _ -> " (inferred " <> show (deriv'type d) <> ")"
         Left failures -> " (" <> show (failure'err (NE.head failures)) <> ")"
     trace $ show ctx
     pure met

@@ -43,8 +43,11 @@ import Pretty
     paint,
     plain,
     prettyDefinedExpr,
+    prettyDefinedReduction,
     prettyDefinedRule,
+    prettyDefinedTerm,
     prettyDefinedType,
+    prettyDefinedValue,
     prettyErr,
     prettyExpr,
     prettyJudgment,
@@ -55,18 +58,25 @@ import Pretty
   )
 import Program (Outcome (..), PalAction (..), Step (..))
 import Types
-  ( Derivation (..),
+  ( Brackets (..),
+    Counterexample (..),
+    Derivation (..),
     Diagnostic (..),
     Expectation (..),
-    Expr (..),
     Failure (..),
     Frame (..),
     Justification (..),
+    Reduction (..),
     Scheme (..),
     Severity (..),
-    Type (..),
+    Term (..),
+    TermDef (..),
+    TestResult (..),
+    TestSpec (..),
     TypeDecl (..),
     TypingRule (..),
+    propertyName,
+    pattern EVar,
   )
 
 --------------------------------------------------------------------------------
@@ -122,6 +132,7 @@ reportOutcome r located action = \case
     (AInfer e, Left failures) -> failureLines e failures
     _ -> []
   Expected x diagnostics result met -> expectation x diagnostics result met
+  Tested result -> tested result
   where
     st = report'style r
 
@@ -129,6 +140,9 @@ reportOutcome r located action = \case
       ADefineType td -> prettyDefinedType st td
       ADefineExpr ed -> prettyDefinedExpr st ed
       ADefineRule tr -> prettyDefinedRule st tr
+      ADefineReduction rd -> prettyDefinedReduction st rd
+      ADefineValue v -> prettyDefinedValue st v
+      ADefineTerm d -> prettyDefinedTerm st d
       _ -> ""
 
     rejectedLine diagnostics =
@@ -142,6 +156,9 @@ reportOutcome r located action = \case
       ADefineType (TypeDecl n _) -> keyword "type" <> " " <> n
       ADefineExpr ed -> keyword "expr" <> " " <> takeWhile (/= ' ') (show ed)
       ADefineRule tr -> keyword "rule" <> " " <> typingRule'name tr
+      ADefineReduction rd -> keyword "reduce" <> " " <> reduction'name rd
+      ADefineValue v -> keyword "value" <> " " <> show v
+      ADefineTerm d -> keyword "def" <> " " <> termDef'name d
       _ -> ""
 
     keyword = paint st [Bold, Blue]
@@ -167,9 +184,32 @@ reportOutcome r located action = \case
         [mark True <> " " <> failsText e <> note st ("  (" <> errText (failure'err f) <> ")")]
       (ExpectFailure e, Right d) ->
         (mark False <> " " <> failsText e <> dash <> "but " <> prettyExpr st e <> punct " :: " <> prettyType st (deriv'type d)) : located'
+      (ExpectInhabited t, _)
+        | not (null [() | Diagnostic SevError _ <- diagnostics]) ->
+            (mark False <> " " <> findText t <> dash <> intercalate "; " [m | Diagnostic SevError m <- diagnostics]) : located'
+      (ExpectInhabited t, Right d) ->
+        (mark True <> " " <> findText t <> dash <> prettyExpr st (deriv'expr d)) : derivation d
+      (ExpectInhabited t, Left (f :| _)) ->
+        (mark False <> " " <> findText t <> dash <> errText (failure'err f)) : located'
 
+    tested (TestResult spec checked counterexample) = case counterexample of
+      Nothing
+        | checked == 0 -> [mark True <> " " <> testText spec <> note st "  (no generated term has a type, so nothing was checked)"]
+        | otherwise -> [mark True <> " " <> testText spec <> note st ("  (" <> count checked "well-typed term" <> ")")]
+      Just c -> (mark False <> " " <> testText spec <> dash <> counterexampleText c) : located'
+    testText (TestSpec p _) = keyword "test" <> " " <> propertyName p
+    counterexampleText = \case
+      NotPreserved e t e' (Right t') ->
+        judgment e t <> " reduces to " <> judgment e' t'
+      NotPreserved e t e' (Left err) ->
+        judgment e t <> " reduces to " <> prettyExpr st e' <> ", which has no type: " <> errText err
+      Stuck e t ->
+        judgment e t <> " does not reduce, and no value pattern matches it"
+    judgment e t = prettyExpr st e <> punct " : " <> prettyType st t
+    count n word = show n <> " " <> word <> (if n == 1 then "" else "s")
     checkText e t = keyword "check" <> " " <> prettyExpr st e <> punct " : " <> prettyType st t
     failsText e = keyword "fails" <> " " <> prettyExpr st e
+    findText t = keyword "find" <> " " <> prettyType st t
     errText err = let s = show err in fromMaybe s (dropPrefix "[Error] " s)
     -- An error on its own line: without the "[Error] " prefix when plain.
     errLine err = if styleEnabled st then prettyErr st err else errText err
@@ -367,25 +407,22 @@ derivationLatexDocument d =
 
 judgmentLatex :: Derivation -> String
 judgmentLatex (Derivation e t _ assumptions _) =
-  hypotheses <> exprLatex e <> " : " <> typeLatex t
+  hypotheses <> termLatex e <> " : " <> termLatex t
   where
     hypotheses
       | null assumptions = ""
       | otherwise = intercalate ", " [ident v <> " : " <> schemeLatex s | (v, s) <- assumptions] <> " \\vdash "
-    schemeLatex (Forall [] st) = typeLatex st
-    schemeLatex (Forall vs st) = "\\forall " <> unwords (fmap ident vs) <> ".\\, " <> typeLatex st
+    schemeLatex (Forall [] st) = termLatex st
+    schemeLatex (Forall vs st) = "\\forall " <> unwords (fmap ident vs) <> ".\\, " <> termLatex st
 
-exprLatex :: Expr -> String
-exprLatex = \case
-  EVar v -> ident v
-  ECon n [] -> latexName n
-  ECon n es -> latexName n <> "(" <> intercalate ", " (fmap exprLatex es) <> ")"
-
-typeLatex :: Type -> String
-typeLatex = \case
-  TVar v -> ident v
-  TCon n [] -> latexName n
-  TCon n ts -> latexName n <> "\\langle " <> intercalate ", " (fmap typeLatex ts) <> "\\rangle"
+-- | A term, with each constructor in its own brackets.
+termLatex :: Term -> String
+termLatex = \case
+  Var v -> ident v
+  Con _ n [] -> latexName n
+  Con Parens n ts -> latexName n <> "(" <> intercalate ", " (fmap termLatex ts) <> ")"
+  Con Angles n ts -> latexName n <> "\\langle " <> intercalate ", " (fmap termLatex ts) <> "\\rangle"
+  Subst body x e -> termLatex body <> "[" <> termLatex x <> " \\coloneqq " <> termLatex e <> "]"
 
 -- | A variable: single letters stay italic, longer names are upright.
 ident :: String -> String

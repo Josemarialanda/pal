@@ -1,0 +1,82 @@
+-- Preservation and progress hold for the simply typed λ-calculus with
+-- products and sums, when every elimination of a value has a reduction.
+
+type Unit
+type Bool
+type Arrow<a, b>
+type Prod<a, b>
+type Sum<a, b>
+
+expr Tt    : Unit
+expr True  : Bool
+expr False : Bool
+
+rule If:
+  c : Bool
+  t : a
+  e : a
+->
+  If(c, t, e) : a
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Prod<a, b>
+
+rule Fst:
+  p : Prod<a, b>
+->
+  Fst(p) : a
+
+rule Snd:
+  p : Prod<a, b>
+->
+  Snd(p) : b
+
+rule Inl:
+  x : a
+->
+  Inl(x) : Sum<a, b>
+
+rule Inr:
+  x : b
+->
+  Inr(x) : Sum<a, b>
+
+rule Case:
+  s : Sum<a, b>
+  x : a |- left : c
+  y : b |- right : c
+->
+  Case(s, x, left, y, right) : c
+
+reduce IfTrue:  If(True, t, e) ~> t
+reduce IfFalse: If(False, t, e) ~> e
+reduce Beta:    App(Lam(x, body), a) ~> body[x := a]
+reduce FstPair: Fst(Pair(a, b)) ~> a
+reduce SndPair: Snd(Pair(a, b)) ~> b
+reduce CaseInl: Case(Inl(v), x, left, y, right) ~> left[x := v]
+reduce CaseInr: Case(Inr(v), x, left, y, right) ~> right[y := v]
+
+value Tt
+value True
+value False
+value Lam(x, body)
+value Pair(a, b)
+value Inl(a)
+value Inr(a)
+
+test preservation
+test progress 2000
