@@ -31,6 +31,7 @@ module Program
     Step (..),
     Outcome (..),
     runSteps,
+    runStepsWith,
     succeeded,
   )
 where
@@ -144,7 +145,7 @@ fromStmt = \case
   SValue v -> ADefineValue v
   SDef d -> ADefineTerm d
   STest spec -> ATest spec
-  SFind t -> AExpect (ExpectInhabited t)
+  SFind t d -> AExpect (ExpectInhabited t d)
   SInfer e -> AInfer e
   SCheck e t -> AExpect (ExpectType e t)
   SFails e -> AExpect (ExpectFailure e)
@@ -192,6 +193,8 @@ data Outcome
     Expected Expectation [Diagnostic] (Either (NonEmpty Failure) Derivation) Bool
   | -- | The result of @test@.
     Tested TestResult
+  | -- | A @test@ that was not run (see 'runStepsWith').
+    NotRun
 
 -- | A statement, where it is in the source, and its outcome.
 data Step = Step
@@ -208,14 +211,22 @@ succeeded = \case
   Inferred r -> either (const False) (const True) r
   Expected _ _ _ met -> met
   Tested result -> isNothing (test'counterexample result)
+  NotRun -> True
 
 -- | Run a program from a context, statement by statement, reporting each
 --   outcome. Pure: nothing is printed. Returns the final context.
 runSteps :: Ctx -> [Located PalAction] -> (Ctx, [Step])
-runSteps ctx [] = (ctx, [])
-runSteps ctx (located : rest) =
-  let (ctx', outcome) = runStep ctx (loc'value located)
-      (final, steps) = runSteps ctx' rest
+runSteps = runStepsWith True
+
+-- | Like 'runSteps'. Without tests, a @test@ statement is not run: its
+--   outcome is 'NotRun' (the web UI runs tests only when asked).
+runStepsWith :: Bool -> Ctx -> [Located PalAction] -> (Ctx, [Step])
+runStepsWith _ ctx [] = (ctx, [])
+runStepsWith withTests ctx (located : rest) =
+  let (ctx', outcome) = case loc'value located of
+        ATest _ | not withTests -> (ctx, NotRun)
+        action -> runStep ctx action
+      (final, steps) = runStepsWith withTests ctx' rest
    in (final, Step located outcome : steps)
 
 runStep :: Ctx -> PalAction -> (Ctx, Outcome)

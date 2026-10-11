@@ -35,6 +35,7 @@ module Parser.Parser where
 import Data.Char (isLower)
 import Data.Maybe (listToMaybe)
 import Data.Void (Void)
+import Interpreters.Common.Search (defaultDepth)
 import Parser.Types (Located (..), PalStmt (..), Span (..), SpanTree (..))
 import Text.Megaparsec
   ( Parsec,
@@ -265,12 +266,19 @@ defaultTestTerms = 5000
 -- | Parse a proof search, e.g.:
 --
 -- > find Implies<a, a>
+-- > find Implies<a, a> 8
+--
+-- The number is the depth of the search (see "Interpreters.Common.Search").
 pFind :: Parser PalStmt
-pFind = keyword "find" *> (SFind <$> pTypeExpr)
+pFind = do
+  _ <- keyword "find"
+  t <- pTypeExpr
+  SFind t <$> option defaultDepth (lexeme L.decimal)
 
 -- | Parse a definition, e.g.:
 --
 -- > def Two := Succ(Succ(Zero))
+-- > def Double(n) := Plus(n, n)
 pDef :: Parser PalStmt
 pDef = do
   _ <- keyword "def"
@@ -278,8 +286,15 @@ pDef = do
   case name of
     c : _ | isLower c -> fail "the name of a definition starts with an uppercase letter, like a constructor"
     _ -> pure ()
+  params <- option [] (parens (pParam `sepBy` symbol ","))
   _ <- symbol ":="
-  SDef . TermDef name <$> pExprApp
+  SDef . TermDef name params <$> pExprApp
+  where
+    pParam = do
+      p <- ident
+      case p of
+        c : _ | isLower c -> pure p
+        _ -> fail "a parameter of a definition starts with a lowercase letter, like a variable"
 
 -- | Parse a single rule premise, either a plain judgment or one made under
 -- hypotheses (@⊢@ may also be written @|-@), e.g.:

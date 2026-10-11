@@ -46,11 +46,11 @@ The dev shell's `pal` and `pal-ui` rebuild from your working tree first, so they
 | `expr C : T`                        | Axiom: constant `C` has type `T`                          |
 | `rule Name:` *premises* `->` *conclusion* | Inference rule                                      |
 | `reduce Name: lhs ~> rhs`           | Reduction: a term that matches `lhs` is equal to `rhs`    |
-| `def Name := e`                     | Definition: `Name` is a constant with the type of `e`, and it reduces to `e` |
+| `def Name := e`, `def Name(x, y) := e` | Definition: a name for `e` (with parameters), with the inferred type, that reduces to `e` |
 | `infer e`                           | Infer the type of `e`                                     |
 | `check e : T`                       | Expect `e` to have type `T` (type variables may be renamed) |
 | `fails e`                           | Expect `e` to be a type error                             |
-| `find T`                            | Proof search: find a term of type `T`                     |
+| `find T`, `find T N`                | Proof search: find a term of type `T`, at most `N` rules deep (default 6) |
 | `value P`                           | Declare a pattern of values, e.g. `value Succ(n)` (for `test progress`) |
 | `test preservation [N]`             | Test that reduction keeps the type, on N generated terms (default 5000) |
 | `test progress [N]`                 | Test that a well-typed term that does not reduce is a value |
@@ -101,6 +101,7 @@ rule App:                       reduce Beta: App(Lam(x, t, body), a) ~> body[x :
 - PAL gets the binders from the rules. The premise `x : t |- u : Type` of the rule for `Pi(x, t, u)` tells PAL that `x` is bound in `u`. Substitution does not capture variables, and types are equal up to the names of bound variables.
 - Types are equal up to the `reduce` statements. PAL stops a reduction after 10 000 steps.
 - `def Two := Succ(Succ(Zero))` gives a name to a term. PAL infers the type of the body, adds `Two` as a constant of that type, and adds the reduction `Two ~> Succ(Succ(Zero))`. So a definition can also name a type, such as `def Vec2 := Vec(Two, Nat)`.
+- A definition can have parameters: `def Double(n) := Plus(n, n)`. Each parameter gets the type that the body needs (here `n : Nat`), and PAL adds a typing rule and the reduction `Double(n) ~> Plus(n, n)`. The result type can mention a parameter: `def Rep(n) := Replicate(n, Zero)` gives `Rep(n) : Vec(n, Nat)`.
 - A unification with `u[x := a]`, where `u` is still unknown, waits until a later premise solves `u`. If `u` stays unknown, PAL reports a stuck substitution (PAL does no higher-order unification).
 - A variable cannot escape its binder. For example, in a rule with the conclusion `Weird(x, t, body) : u` and the premise `x : t |- body : u`, the type `u` cannot mention `x`, because `u` is also used outside `x`. Write `u[x := …]` to remove `x`.
 - Limits: PAL does not check that reductions terminate or are confluent, and it accepts `Type : Type`.
@@ -130,7 +131,7 @@ A test that passes is evidence, not a proof: it checks only the terms that PAL g
 
 - The search works backwards from `T`: it tries the variables in scope, the constants, and the rules whose conclusion type unifies with the goal. The premises become new goals.
 - It looks only for normal terms. An elimination rule (a rule whose conclusion type is a variable, like `Fst(p) : a`) is applied only to a variable, a constant or another elimination.
-- It deepens step by step up to 6 rules, so it finds a small term first. PAL checks the term with the type checker before it shows it.
+- It deepens step by step up to 6 rules (or `N` with `find T N`), so it finds a small term first. PAL checks the term with the type checker before it shows it. A search also stops after 200 000 steps, and then it tells how deep it went.
 - If the search finds nothing, that is not a proof that no term exists.
 
 **Definitions are checked.** A definition is rejected (with a reason, and `pal` exits 1) if it uses a type that wasn't declared, gives a type the wrong number of arguments, or is a rule whose premise uses a variable that its conclusion doesn't bind. In a type, a constructor is declared by `type`, by `expr` or by the conclusion of a rule:
@@ -229,6 +230,7 @@ pal❯ Not(True)
 - Your program is saved in the browser between visits.
 - The **Examples** menu loads any program from [`examples/programs/`](examples/programs/).
 - **Share** copies a link that opens your program. The program is in the link itself (after `#`), so the server never sees it.
+- `test` statements are slow, so the page does not run them while you type. Press **Run tests** to run them.
 - The theme menu offers every [Tinted Theming](https://github.com/tinted-theming/schemes) colour scheme (base16, base24 and tinted8, vendored in [`ui/themes/`](ui/themes/)).
 
 | Flag        | Effect                                                       |

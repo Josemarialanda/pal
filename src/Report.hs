@@ -124,7 +124,8 @@ reportStep r (Step located outcome) = reportOutcome r (Just located) (loc'value 
 reportOutcome :: Report -> Maybe (Located PalAction) -> PalAction -> Outcome -> [String]
 reportOutcome r located action = \case
   Defined diagnostics ->
-    [definedLine | report'echoDefinitions r] <> reportDiagnostics st diagnostics
+    [definedLine | report'echoDefinitions r]
+      <> concatMap (\d -> reportDiagnostics st [d] <> fmap ("    " <>) (statementLocation r located)) diagnostics
   Rejected diagnostics ->
     rejectedLine diagnostics <> fmap ("    " <>) (statementLocation r located)
   Inferred result -> case (action, result) of
@@ -133,6 +134,9 @@ reportOutcome r located action = \case
     _ -> []
   Expected x diagnostics result met -> expectation x diagnostics result met
   Tested result -> tested result
+  NotRun -> case action of
+    ATest (TestSpec p _) -> [note st ("· " <> "test " <> propertyName p <> "  (not run)")]
+    _ -> []
   where
     st = report'style r
 
@@ -184,12 +188,12 @@ reportOutcome r located action = \case
         [mark True <> " " <> failsText e <> note st ("  (" <> errText (failure'err f) <> ")")]
       (ExpectFailure e, Right d) ->
         (mark False <> " " <> failsText e <> dash <> "but " <> prettyExpr st e <> punct " :: " <> prettyType st (deriv'type d)) : located'
-      (ExpectInhabited t, _)
+      (ExpectInhabited t _, _)
         | not (null [() | Diagnostic SevError _ <- diagnostics]) ->
             (mark False <> " " <> findText t <> dash <> intercalate "; " [m | Diagnostic SevError m <- diagnostics]) : located'
-      (ExpectInhabited t, Right d) ->
+      (ExpectInhabited t _, Right d) ->
         (mark True <> " " <> findText t <> dash <> prettyExpr st (deriv'expr d)) : derivation d
-      (ExpectInhabited t, Left (f :| _)) ->
+      (ExpectInhabited t _, Left (f :| _)) ->
         (mark False <> " " <> findText t <> dash <> errText (failure'err f)) : located'
 
     tested (TestResult spec checked counterexample) = case counterexample of

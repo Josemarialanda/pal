@@ -42,6 +42,8 @@
   select.theme { font: 13px var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; max-width: 220px; }
   button.share { font: 13px var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
   button.share:hover { border-color: var(--accent); }
+  .pane-head button.share { padding: 1px 8px; font-size: 12px; margin-left: auto; margin-right: 8px; }
+  button.share:disabled { opacity: .6; cursor: progress; }
 
   /* Layout */
   main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 0; }
@@ -206,7 +208,7 @@ try { applyTheme(localStorage.getItem("pal.theme") || ""); } catch {}
   </section>
 
   <section class="pane">
-    <div class="pane-head"><span>Results</span><span class="status" id="summary"></span></div>
+    <div class="pane-head"><span>Results</span><button class="share" id="runTests" type="button" title="Run the test statements (they are not run while you type)" hidden>Run tests</button><span class="status" id="summary"></span></div>
     <div class="results" id="results" aria-live="polite"></div>
   </section>
 </main>
@@ -242,18 +244,20 @@ fails Not(Not)         -- expect a type error</pre>
   Vec(n, a) : Type
 App(f, a) : u[x := a]        -- u with a for x, in a rule's type
 reduce Beta: App(Lam(x, t, b), a) ~> b[x := a]
-def Two := Succ(Succ(Zero))  -- a name for a term</pre>
+def Two := Succ(Succ(Zero))  -- a name for a term
+def Double(n) := Plus(n, n)  -- with parameters</pre>
   <p>Expressions and types are the same terms: <code>C(…)</code> and <code>C&lt;…&gt;</code> are equal. A premise <code>x : t |- u : …</code> in a rule for <code>Pi(x, t, u)</code> makes <code>x</code> bound in <code>u</code>. Types are equal up to bound names and up to <code>reduce</code>.</p>
 
   <h3>Proof search</h3>
-  <pre data-pal>find Implies&lt;a, a&gt;     -- find a term of this type: Lam(x, x)</pre>
+  <pre data-pal>find Implies&lt;a, a&gt;     -- find a term of this type: Lam(x, x)
+find Implies&lt;a, a&gt; 10  -- search up to 10 rules deep (default 6)</pre>
   <p>PAL searches backwards from the type through your rules, up to 6 rules deep. With types as propositions, the term is a proof.</p>
 
   <h3>Metatheory</h3>
   <pre data-pal>value Succ(n)          -- a pattern of values
 test preservation      -- reduction keeps the type
 test progress 2000     -- a term that does not reduce is a value</pre>
-  <p>A test generates well-typed closed terms from your rules (5000 tries if you give no number) and shows the smallest counterexample.</p>
+  <p>A test generates well-typed closed terms from your rules (5000 tries if you give no number) and shows the smallest counterexample. Tests are slow, so this page runs them only when you press <b>Run tests</b>.</p>
 
   <h3>Premises</h3>
   <pre data-pal>x : T                  -- x must have type T
@@ -470,12 +474,14 @@ parseErrorBox.addEventListener("click", () => errorPos && jumpTo(errorPos.line, 
 let timer = null, requestId = 0;
 function scheduleRun() { clearTimeout(timer); timer = setTimeout(run, 300); }
 
-async function run() {
+// Run the program on the server. Test statements are slow, so they run only
+// when asked (withTests); otherwise they come back as not run.
+async function run(withTests = false) {
   clearTimeout(timer);
   const id = ++requestId;
   let data;
   try {
-    const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: src.value });
+    const res = await fetch(withTests ? "/api/run?tests=1" : "/api/run", { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: src.value });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     data = await res.json();
   } catch (err) {
@@ -485,6 +491,9 @@ async function run() {
     return;
   }
   if (id !== requestId) return; // a newer run has started
+  runTestsButton.hidden = !(data.items || []).some((it) => it.kind === "test");
+  runTestsButton.disabled = false;
+  runTestsButton.textContent = "Run tests";
   render(data);
 }
 
@@ -541,10 +550,12 @@ function renderItem(item) {
         : item.kind === "expr" ? `${ex(item.name)}<span class="sep">:</span>${ty(item.type)}`
         : item.kind === "reduce" ? span("rule", item.name) + span("punct", ": ") + ex(item.text.slice(item.name.length + 2))
         : item.kind === "value" ? ex(item.text)
-        : item.kind === "def" ? span("con", item.name) + span("punct", " := ") + ex(item.text.slice(item.text.indexOf(":=") + 3))
+        : item.kind === "def" ? ex(item.text.slice(4, item.text.indexOf(" := "))) + span("punct", " := ") + ex(item.text.slice(item.text.indexOf(" := ") + 4))
         : renderRule(item.rule);
       const warnings = (item.diagnostics || []).filter((d) => d.severity === "warning").map((d) => `<div class="warn-text">⚠ ${esc(d.message)}</div>`).join("");
-      if (!item.rejected) return `<div class="item def${warnings ? " warned" : ""}"><span class="tag">${item.kind}</span>${body}${warnings}</div>`;
+      if (!item.rejected) return warnings
+        ? `<div class="item def warned" data-jump="${item.start}" title="Click to jump to the definition"><span class="tag">${item.kind}</span>${body}${warnings}</div>`
+        : `<div class="item def"><span class="tag">${item.kind}</span>${body}</div>`;
       const reasons = item.diagnostics.map((d) => `<div class="err-text">${esc(d.message)}</div>`).join("");
       return `<div class="item rejected" data-jump="${item.start}" title="Click to jump to the definition"><span class="tag">${item.kind} · rejected</span>${body}<div class="errors">${reasons}</div></div>`;
     }
@@ -569,6 +580,7 @@ function renderItem(item) {
     }
     case "test": {
       const head = `${span("kw", "test")} ${span("kw", item.property)}`;
+      if (item.notRun) return `<div class="item"><span class="mark">·</span>${head}<span class="aside">not run — press Run tests</span></div>`;
       if (item.ok) {
         const note = item.checked === 0 ? "no generated term has a type, so nothing was checked" : `${item.checked} well-typed term${item.checked === 1 ? "" : "s"}`;
         return `<div class="item ok"><span class="mark">✓</span>${head}<span class="aside">${esc(note)}</span></div>`;
@@ -680,6 +692,13 @@ themeSelect.value = store.get("theme", "");  // "" (Default) if that scheme is g
 themeSelect.addEventListener("change", () => {
   applyTheme(themeSelect.value);
   store.set("theme", themeSelect.value);
+});
+
+const runTestsButton = $("runTests");
+runTestsButton.addEventListener("click", () => {
+  runTestsButton.disabled = true;
+  runTestsButton.textContent = "Running…";
+  run(true);
 });
 
 /* ---------- Examples and shareable links ---------- */

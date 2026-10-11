@@ -20,7 +20,9 @@
 -- before it is reported.
 module Interpreters.Common.Search
   ( findTerm,
-    maxDepth,
+    defaultDepth,
+    NotFound (..),
+    notFoundMessage,
   )
 where
 
@@ -45,25 +47,47 @@ import Interpreters.Common.Actions
   )
 import qualified Types
 
--- | The deepest search: the most rules on a path from the goal to a leaf.
-maxDepth :: Int
-maxDepth = 6
+-- | The depth of a search if the program does not give one: the most rules
+--   on a path from the goal to a leaf.
+defaultDepth :: Int
+defaultDepth = 6
 
 -- | The most search steps in all, so that a search stops in time.
 budget :: Int
 budget = 200000
 
--- | Find a closed term of the given type, if the search finds one. The
---   free variables of the type are rigid: the term must have the type for
---   every value of them.
-findTerm :: Types.Ctx -> Types.Type -> Maybe Types.Term
-findTerm ctx goal = deepen 1 budget
+-- | Why a search found no term.
+data NotFound
+  = -- | The search went to the given depth and found nothing.
+    NotWithin Int
+  | -- | The search used all its steps; it went completely to the given
+    --   depth.
+    OutOfSteps Int
+
+-- | A message that tells why the search found no term.
+notFoundMessage :: NotFound -> String
+notFoundMessage = \case
+  NotWithin d -> "no term of this type found (the search goes " <> show d <> " rules deep)"
+  OutOfSteps d ->
+    "no term of this type found: the search stopped after "
+      <> show budget
+      <> " steps"
+      <> (if d > 0 then ", and it looked " <> show d <> " rules deep" else "")
+
+-- | Find a closed term of the given type, at most the given number of
+--   rules deep. The free variables of the type are rigid: the term must
+--   have the type for every value of them.
+findTerm :: Types.Ctx -> Int -> Types.Type -> Either NotFound Types.Term
+findTerm ctx depthLimit goal = deepen 1 budget
   where
     deepen d steps
-      | d > maxDepth || steps <= 0 = Nothing
+      | d > depthLimit = Left (NotWithin depthLimit)
+      | steps <= 0 = Left (OutOfSteps (d - 1))
       | otherwise = case search ctx False [] goal d initialState steps done of
-          Right term -> Just (tidy ctx term)
-          Left steps' -> deepen (d + 1) steps'
+          Right term -> Right (tidy ctx term)
+          Left steps'
+            | steps' <= 0 -> Left (OutOfSteps (d - 1))
+            | otherwise -> deepen (d + 1) steps'
     -- Accept a term only if the type checker agrees.
     done term st steps = case checkDetailed ctx (applySubst (inferSubst st) term) goal of
       Right _ -> Right (applySubst (inferSubst st) term)

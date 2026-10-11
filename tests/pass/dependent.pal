@@ -130,3 +130,15 @@ def Id   := Lam(a, Type, Lam(x, a, x))
 check Replicate(Two, Zero) : Vec(Succ(Succ(Zero)), Nat)
 check Lam(v, Vec2, v) : Pi(v, Vec(Succ(Succ(Zero)), Nat), Vec(Succ(Succ(Zero)), Nat))
 check App(App(Id, Nat), Two) : Nat
+
+-- Definitions with parameters: each parameter gets the type that the body
+-- needs, and the type of the result can mention a parameter.
+def Double(n) := Plus(n, n)
+def Rep(n)    := Replicate(n, Zero)
+def Pick(x, y) := x
+
+check Double(Succ(Zero)) : Nat
+check Rep(Double(Succ(Zero))) : Vec(Succ(Succ(Zero)), Nat)
+check Pick(Zero, Nat) : Nat
+check Pick(Nat, VNil) : Type
+fails Double(Nat)

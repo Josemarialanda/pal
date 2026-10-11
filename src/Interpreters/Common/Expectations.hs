@@ -23,7 +23,7 @@ import Interpreters.Common.Actions
     normalForm,
     validateType,
   )
-import Interpreters.Common.Search (findTerm, maxDepth)
+import Interpreters.Common.Search (findTerm, notFoundMessage)
 import qualified Types
 
 -- | Check an expectation. Returns diagnostics about the expected type (an
@@ -56,12 +56,12 @@ checkExpectation ctx = \case
   Types.ExpectFailure e ->
     let result = inferDetailed ctx e
      in ([], result, isLeft result)
-  Types.ExpectInhabited t ->
+  Types.ExpectInhabited t depth ->
     let diagnostics = validateType ctx t
-     in case findTerm ctx t of
-          Just e -> (diagnostics, checkDetailed ctx e t, not (hasErrors diagnostics))
-          Nothing ->
-            let notFound = Types.CustomErr ("no term of this type found (the search goes " <> show maxDepth <> " rules deep)")
+     in case findTerm ctx depth t of
+          Right e -> (diagnostics, checkDetailed ctx e t, not (hasErrors diagnostics))
+          Left why ->
+            let notFound = Types.CustomErr (notFoundMessage why)
              in (diagnostics, Left (pure (Types.Failure notFound [] [])), False)
   where
     isCannotInfer = \case

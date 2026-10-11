@@ -319,9 +319,11 @@ prettyDefinedReduction st rd
   | otherwise = "defined reduce " <> reduction'name rd
 
 prettyDefinedTerm :: Style -> TermDef -> String
-prettyDefinedTerm st (TermDef name body)
-  | styleEnabled st = note st "defined " <> keyword st "def" <> " " <> paint st [Bold] name <> punct st " := " <> prettyExpr st body
+prettyDefinedTerm st (TermDef name params body)
+  | styleEnabled st = note st "defined " <> keyword st "def" <> " " <> paint st [Bold] name <> paramList <> punct st " := " <> prettyExpr st body
   | otherwise = "defined def " <> name
+  where
+    paramList = if null params then "" else punct st "(" <> intercalate (punct st ", ") (fmap (paint st [Italic]) params) <> punct st ")"
 
 prettyDefinedValue :: Style -> Term -> String
 prettyDefinedValue st v

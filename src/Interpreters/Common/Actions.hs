@@ -107,34 +107,69 @@ defineReduction = defineWith validateReduction OneOf5_4
 defineValue :: (Member (State Types.Ctx) r) => Types.Term -> Sem r [Types.Diagnostic]
 defineValue = defineWith validateValue OneOf5_5
 
--- | Define a name for a term (@def Name := body@).
+-- | Define a name for a term (@def Name := body@, or @def Name(x, y) := body@
+--   with parameters).
 --
---   The body must have a type, and the name must be new. Then the name is
---   added as a constant of the body's type ('ctx'exprs'), with a reduction
---   from the name to the body ('ctx'reductions').
+--   The body must have a type, and the name must be new. Without parameters,
+--   the name is added as a constant of the body's type ('ctx'exprs'). With
+--   parameters, it gets a typing rule: each parameter has the type that the
+--   body needs for it (see 'inferWithParams'). Either way, a reduction goes
+--   from the name (applied to the parameters) to the body.
 defineTerm :: (Member (State Types.Ctx) r) => Types.TermDef -> Sem r [Types.Diagnostic]
-defineTerm def@(Types.TermDef name body) = do
+defineTerm def@(Types.TermDef name params body) = do
   ctx <- get
   case validateTermDef ctx def of
     Left diagnostics -> pure diagnostics
-    Right t -> do
-      modify (insertDefinition (OneOf5_4 (Types.Reduction name (Types.ECon name []) body)))
-      modify (insertDefinition (OneOf5_2 (Types.ExprDecl name t)))
+    Right (paramTypes, t) -> do
+      let pattern' = Types.ECon name (fmap Types.Var params)
+      modify (insertDefinition (OneOf5_4 (Types.Reduction name pattern' body)))
+      if null params
+        then modify (insertDefinition (OneOf5_2 (Types.ExprDecl name t)))
+        else modify (insertDefinition (OneOf5_3 (Types.TypingRule name (zipWith (Types.premise . Types.Var) params paramTypes) (pattern', t))))
       pure []
 
--- | The type of a definition's body, or why the definition is rejected.
-validateTermDef :: Types.Ctx -> Types.TermDef -> Either [Types.Diagnostic] Types.Type
-validateTermDef ctx (Types.TermDef name body)
+-- | The types of a definition's parameters and of its body, or why the
+--   definition is rejected.
+validateTermDef :: Types.Ctx -> Types.TermDef -> Either [Types.Diagnostic] ([Types.Type], Types.Type)
+validateTermDef ctx (Types.TermDef name params body)
   | name `elem` declared = Left [errorDiag (name <> " is already declared")]
-  | otherwise = case inferDetailed ctx body of
-      Right d -> Right (Types.deriv'type d)
-      Left failures -> Left [errorDiag ("the body of " <> name <> " has no type: " <> errText (Types.failure'err (NE.head failures)))]
+  | p : _ <- duplicates params = Left [errorDiag ("definition " <> name <> " lists the parameter " <> p <> " more than once")]
+  | otherwise = case inferWithParams ctx params body of
+      Right types -> Right types
+      Left err -> Left [errorDiag ("the body of " <> name <> " has no type: " <> errText err)]
   where
     declared =
       fmap Types.typeDecl'name (Types.ctx'types ctx)
         <> fmap Types.exprDecl'name (Types.ctx'exprs ctx)
         <> [n | Types.TypingRule _ _ (Types.ECon n _, _) <- Types.ctx'rules ctx]
     errText err = let s = show err in fromMaybe s (stripPrefix "[Error] " s)
+
+-- | Infer the type of a term in which the parameters are variables of
+--   unknown types. Returns the types that the term needs for the
+--   parameters, and its own type. The unknown types that remain are named
+--   @a@, @b@, … (not the names of the parameters), so they become type
+--   variables of a rule.
+inferWithParams :: Types.Ctx -> [String] -> Types.Term -> Either Types.Err ([Types.Type], Types.Type)
+inferWithParams ctx params body = case runInfer action initialState of
+  (st, Right types) -> case reverse (inferFailures st) of
+    f : _ -> Left (Types.failure'err f)
+    [] -> Right (tidyNames types)
+  (_, Left err) -> Left err
+  where
+    action = do
+      paramTypes <- traverse (const fresh) params
+      let ctx' = ctx {Types.ctx'env = M.fromList (zip params (fmap (Types.Forall []) paramTypes)) <> Types.ctx'env ctx}
+      (t, _) <- inferM ctx' [] body
+      settle
+      s <- getsI inferSubst
+      pure (fmap (forceTerm ctx . applySubst s) paramTypes, forceTerm ctx (applySubst s t))
+    tidyNames (paramTypes, t) =
+      let types = t : paramTypes
+          vars = nub (concatMap freeTypeVars types)
+          metas = filter isMeta vars
+          taken = params <> filter (not . isMeta) vars
+          names = M.fromList (zip metas (fmap Types.TVar (filter (`notElem` taken) prettyNames)))
+       in (fmap (applySubst names) paramTypes, applySubst names t)
 
 --------------------------------------------------------------------------------
 
@@ -663,9 +698,9 @@ withFrame frame action = do
 --
 --   Then try the postponed unifications again, because the action can have
 --   solved a metavariable that they wait for.
-attempt :: [Int] -> Infer a -> Infer (Maybe a)
-attempt path action = do
-  result <- atPlace path Nothing ((Just <$> action) `catchErr` \err -> Nothing <$ recordFailure err)
+attempt :: Types.Ctx -> [Int] -> Infer a -> Infer (Maybe a)
+attempt ctx path action = do
+  result <- atPlace path Nothing ((Just <$> action) `catchErr` \err -> Nothing <$ recordFailure ctx err)
   retryPostponed
   pure result
 
@@ -681,13 +716,14 @@ atPlace path frames action = do
     restore p fs = modifyI (\s -> s {inferPath = p, inferFrames = fs})
 
 -- | Record a failure at the current path, with the current premises.
-recordFailure :: Types.Err -> Infer ()
-recordFailure err = do
+recordFailure :: Types.Ctx -> Types.Err -> Infer ()
+recordFailure ctx err = do
   subst <- getsI inferSubst
   frames <- getsI inferFrames
   path <- getsI inferPath
-  -- Show each premise with the types known when it failed.
-  let frames' = fmap (\f -> f {Types.frame'premise = substPremise subst (Types.frame'premise f)}) frames
+  -- Show each premise with the types known when it failed. Apply each
+  -- substitution whose body is known, e.g. Vec(n, Nat)[n := Zero].
+  let frames' = fmap (\f -> f {Types.frame'premise = mapPremise (forceTerm ctx . applySubst subst) (Types.frame'premise f)}) frames
   modifyI (\s -> s {inferFailures = Types.Failure err path frames' : inferFailures s})
 
 -- | Postpone a unification that waits for a metavariable (see 'Postponed').
@@ -704,7 +740,7 @@ retryPostponed = do
   postponed <- getsI inferPostponed
   modifyI (\s -> s {inferPostponed = []})
   forM_ (reverse postponed) $ \(Postponed ctx bound expected got _ path frames) ->
-    atPlace path (Just frames) (unifyUnder ctx bound expected got `catchErr` recordFailure)
+    atPlace path (Just frames) (unifyUnder ctx bound expected got `catchErr` recordFailure ctx)
 
 -- | At the end of inference, try the postponed unifications again until
 --   that solves no more metavariables. The ones that are still stuck are
@@ -722,7 +758,7 @@ settle = do
         stuck <- getsI inferPostponed
         modifyI (\s -> s {inferPostponed = []})
         forM_ (reverse stuck) $ \p ->
-          atPlace (postponed'path p) (Just (postponed'frames p)) (recordFailure (Types.StuckSubstitution (postponed'stuck p)))
+          atPlace (postponed'path p) (Just (postponed'frames p)) (recordFailure (postponed'ctx p) (Types.StuckSubstitution (postponed'stuck p)))
 
 --------------------------------------------------------------------------------
 
@@ -1012,7 +1048,7 @@ applyRule ctx path target rule expected = do
         subjectPath = case pExpr of
           Types.EVar v | Just (_, rel) <- M.lookup v env -> path <> rel
           _ -> path
-    withFrame (Types.Frame name premise subject) . attempt subjectPath $ do
+    withFrame (Types.Frame name premise subject) . attempt ctx subjectPath $ do
       locals <- traverse (bindHypothesis env) hyps
       let ctx' = ctx {Types.ctx'env = M.fromList locals <> Types.ctx'env ctx}
       -- A synthesis premise infers; the others check against the type.

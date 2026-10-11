@@ -343,7 +343,7 @@ rule Case:
 ✗ find Or<a, Implies<a, False>>   — no term of this type found
 ```
 
-The second line is the law of excluded middle. It is not a theorem of this logic (intuitionistic logic), so no search can find a proof. But when the search finds nothing, that alone does not show that no proof exists: the search stops after 6 rules.
+The second line is the law of excluded middle. It is not a theorem of this logic (intuitionistic logic), so no search can find a proof. But when the search finds nothing, that alone does not show that no proof exists: the search stops after 6 rules (write `find T 10` to go deeper).
 
 ---
 
@@ -434,6 +434,8 @@ def Vec2 := Vec(Two, Nat)
 ```
 
 PAL infers the type of the body (`Nat`, then `Type`), adds the name as a constant of that type, and adds a reduction from the name to the body. So `Replicate(Two, Zero)` fits where a `Vec2` is expected.
+
+A definition can also have parameters: `def Double(n) := Plus(n, n)`. PAL finds that `n` must be a `Nat`, and adds a rule `n : Nat -> Double(n) : Nat`.
 
 ### Limits
 

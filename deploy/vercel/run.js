@@ -32,10 +32,10 @@ function startServer() {
   });
 }
 
-function forward(port, body) {
+function forward(port, body, query) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: "127.0.0.1", port, method: "POST", path: "/api/run", headers: { Host: `127.0.0.1:${port}`, "Content-Type": "text/plain; charset=utf-8", "Content-Length": body.length } },
+      { host: "127.0.0.1", port, method: "POST", path: "/api/run" + query, headers: { Host: `127.0.0.1:${port}`, "Content-Type": "text/plain; charset=utf-8", "Content-Length": body.length } },
       (res) => {
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
@@ -77,7 +77,9 @@ module.exports = async (req, res) => {
       server = startServer();
       port = await server;
     }
-    const r = await forward(port, body);
+    // Only the query that the page uses: ?tests=1 runs the test statements.
+    const query = (req.url || "").endsWith("?tests=1") ? "?tests=1" : "";
+    const r = await forward(port, body, query);
     res.statusCode = r.status;
     res.setHeader("Content-Type", r.type || "application/json; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");

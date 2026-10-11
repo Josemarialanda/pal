@@ -31,8 +31,8 @@ data PalStmt
     SDef TermDef
   | -- | A test of the type system: @test preservation@ or @test progress@
     STest TestSpec
-  | -- | A proof search: @find T@
-    SFind Type
+  | -- | A proof search: @find T@ or @find T N@ (the depth)
+    SFind Type Int
   | -- | A type inference request: @infer e@
     SInfer Expr
   | -- | An expected type: @check e : T@

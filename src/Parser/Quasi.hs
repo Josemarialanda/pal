@@ -109,7 +109,7 @@ genStmtInit = \case
   SValue v -> noBindS [|T.defineValue v|]
   SDef d -> noBindS [|T.defineTerm d|]
   STest spec -> noBindS [|T.test spec|]
-  SFind t -> noBindS [|T.expect (T.ExpectInhabited t)|]
+  SFind t d -> noBindS [|T.expect (T.ExpectInhabited t d)|]
   SInfer e -> bindS wildP [|T.infer e|]
   SCheck e t -> bindS wildP [|T.expect (T.ExpectType e t)|]
   SFails e -> bindS wildP [|T.expect (T.ExpectFailure e)|]
@@ -131,7 +131,7 @@ genStmtLast = \case
   SValue v -> noBindS [|T.defineValue v >> T.infer (T.ECon "Unit" [])|]
   SDef d -> noBindS [|T.defineTerm d >> T.infer (T.ECon "Unit" [])|]
   STest spec -> noBindS [|T.test spec >> T.infer (T.ECon "Unit" [])|]
-  SFind t -> noBindS [|T.expect (T.ExpectInhabited t) >> T.infer (T.ECon "Unit" [])|]
+  SFind t d -> noBindS [|T.expect (T.ExpectInhabited t d) >> T.infer (T.ECon "Unit" [])|]
   SInfer e -> noBindS [|T.infer e|]
   -- An expectation as the last statement: the result is the inference itself.
   SCheck e t -> noBindS [|T.expect (T.ExpectType e t) >> T.infer e|]

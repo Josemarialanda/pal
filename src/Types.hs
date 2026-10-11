@@ -311,17 +311,21 @@ data Reduction = Reduction
 instance Show Reduction where
   show (Reduction name lhs rhs) = name <> ": " <> show lhs <> " ~> " <> show rhs
 
--- | A definition @def Name := body@: a name for a closed term. PAL infers
---   the type of the body; then @Name@ is a constant of that type that
---   reduces to the body.
+-- | A definition @def Name := body@, or @def Name(x, y) := body@ with
+--   parameters: a name for a term. PAL infers the type of the body (and of
+--   the parameters); then @Name@ is a constant of that type, or a
+--   constructor with a typing rule, that reduces to the body.
 data TermDef = TermDef
   { termDef'name :: String,
+    termDef'params :: [String],
     termDef'body :: Term
   }
   deriving (Eq, Lift)
 
 instance Show TermDef where
-  show (TermDef name body) = "def " <> name <> " := " <> show body
+  show (TermDef name params body) = "def " <> name <> paramList <> " := " <> show body
+    where
+      paramList = if null params then "" else "(" <> intercalate ", " params <> ")"
 
 --------------------------------------------------------------------------------
 
@@ -513,15 +517,16 @@ data Expectation
     ExpectType Expr Type
   | -- | Inference fails.
     ExpectFailure Expr
-  | -- | Some closed term has this type (proof search): @find T@.
-    ExpectInhabited Type
+  | -- | Some closed term has this type (proof search), at most the given
+    --   number of rules deep: @find T N@.
+    ExpectInhabited Type Int
   deriving (Eq, Lift)
 
 instance Show Expectation where
   show = \case
     ExpectType e t -> "check " <> show e <> " : " <> show t
     ExpectFailure e -> "fails " <> show e
-    ExpectInhabited t -> "find " <> show t
+    ExpectInhabited t d -> "find " <> show t <> " " <> show d
 
 --------------------------------------------------------------------------------
 

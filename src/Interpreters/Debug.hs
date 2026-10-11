@@ -166,7 +166,7 @@ interpreter = interpret $ \case
     trace $
       (if met then "[PAL] ✓ " else "[PAL] ✗ ") <> show x <> case r of
         Right d -> case x of
-          ExpectInhabited _ -> " (found " <> show (deriv'expr d) <> ")"
+          ExpectInhabited _ _ -> " (found " <> show (deriv'expr d) <> ")"
           _ -> " (inferred " <> show (deriv'type d) <> ")"
         Left failures -> " (" <> show (failure'err (NE.head failures)) <> ")"
     trace $ show ctx

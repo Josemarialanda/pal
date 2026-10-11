@@ -20,7 +20,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import Parser.Parser (palProgramLocated)
 import Parser.Types (Located (..), Span (..), spanAt)
-import Program (Outcome (..), PalAction (..), Step (..), fromStmt, runSteps)
+import Program (Outcome (..), PalAction (..), Step (..), fromStmt, runStepsWith)
 import Report (derivationLatex)
 import Text.Megaparsec (ParseErrorBundle (..), errorBundlePretty, errorOffset, parse, parseErrorTextPretty)
 import Types
@@ -84,7 +84,8 @@ app port req
       ("GET", "/index.html") -> html page
       ("POST", "/api/run") -> case decodeUtf8' (reqBody req) of
         Left _ -> text 400 "request body must be UTF-8"
-        Right src -> json 200 (runSource (T.unpack src))
+        -- @?tests=1@ also runs the test statements, which can take a while.
+        Right src -> json 200 (runSource (reqQuery req == "tests=1") (T.unpack src))
       (_, path)
         | path `elem` ["/", "/index.html", "/api/run"] -> text 405 "method not allowed"
         | otherwise -> text 404 "not found"
@@ -124,19 +125,21 @@ text status msg = utf8 msg (Response status "text/plain; charset=utf-8" [] "")
 
 -- | Parse and run a program, reporting every statement in order.
 --
--- > {"ok": true,  "items": [{"kind": "type" | "expr" | "rule" | "infer" | "check" | "fails", …}, …]}
+-- > {"ok": true,  "items": [{"kind": "type" | "expr" | "rule" | "reduce" | "def" | "value" | "infer" | "check" | "fails" | "find" | "test", …}, …]}
 -- > {"ok": false, "error": {"line": 3, "column": 5, "message": "…", "pretty": "…"}}
 --
 -- Every item has @start@, the offset of its statement in the source.
+--
+-- With @withTests@ unset, a @test@ item has @notRun@ instead of a result.
 -- Definitions have @rejected@ and @diagnostics@. Inferences and expectations
 -- have @ok@ and, on success, @type@, @derivation@ and @latex@; on failure,
 -- @error@ (the first message) and @errors@ (each with the @start@/@end@ of
 -- the subterm at fault and the premises being checked).
-runSource :: String -> Json
-runSource src = case parse palProgramLocated "input" src of
+runSource :: Bool -> String -> Json
+runSource withTests src = case parse palProgramLocated "input" src of
   Left bundle -> object [("ok", JBool False), ("error", parseError bundle)]
   Right stmts ->
-    let (_, steps) = runSteps mempty (fmap (fmap fromStmt) stmts)
+    let (_, steps) = runStepsWith withTests mempty (fmap (fmap fromStmt) stmts)
      in object [("ok", JBool True), ("items", JArray (fmap item steps))]
   where
     parseError bundle =
@@ -164,6 +167,8 @@ item (Step located outcome) = object (("start", JNumber (loc'start located)) : f
         [("kind", JString "def"), ("name", JString (termDef'name d)), ("text", showJ d)] <> definition
       (ADefineValue v, _) ->
         [("kind", JString "value"), ("text", showJ v)] <> definition
+      (ATest spec, NotRun) ->
+        [("kind", JString "test"), ("text", showJ spec), ("property", JString (propertyName (testSpec'property spec))), ("notRun", JBool True), ("ok", JBool True)]
       (ATest spec, Tested (TestResult _ checked counterexample)) ->
         [ ("kind", JString "test"),
           ("text", showJ spec),
@@ -182,7 +187,7 @@ item (Step located outcome) = object (("start", JNumber (loc'start located)) : f
           <> [("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
       (AExpect x@(ExpectFailure e), Expected _ _ result met) ->
         [("kind", JString "fails"), ("expr", showJ e), ("text", showJ x)] <> withoutOk (inference result) <> [("ok", JBool met)]
-      (AExpect x@(ExpectInhabited t), Expected _ diagnostics result met) ->
+      (AExpect x@(ExpectInhabited t _), Expected _ diagnostics result met) ->
         [("kind", JString "find"), ("expected", showJ t), ("text", showJ x), ("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
           <> either (\fs -> [("error", JString (errMessage (failure'err (NE.head fs))))]) (\d -> [("term", showJ (deriv'expr d)), ("derivation", derivation d), ("latex", JString (derivationLatex d))]) result
       (action, _) -> [("kind", JString "unknown"), ("text", JString (show action))]

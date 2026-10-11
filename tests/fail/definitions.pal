@@ -37,3 +37,7 @@ rule IsTrueAgain:
 
 reduce IsTrueTrue: IsTrue(True) ~> True
 reduce IsTrueAny:  IsTrue(b) ~> True
+
+-- Definitions with parameters.
+def Twice(b, b) := b
+def NotBool(b) := Weird(b)

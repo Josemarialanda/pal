@@ -33,7 +33,9 @@ data Request = Request
     reqPath :: String,
     -- | Header names are lower-cased.
     reqHeaders :: [(String, String)],
-    reqBody :: BS.ByteString
+    reqBody :: BS.ByteString,
+    -- | The query string, without the @?@ (empty if there is none).
+    reqQuery :: String
   }
 
 data Response = Response
@@ -111,7 +113,7 @@ readRequest conn = readHead BS.empty
                   body <- readBody len bodyStart
                   pure $ case body of
                     Nothing -> Left 400
-                    Just b -> Right (Request method (takeWhile (/= '?') target) headers b)
+                    Just b -> let (path, query) = break (== '?') target in Right (Request method path headers b (drop 1 query))
         _ -> pure (Left 400)
 
     parseHeader l =
