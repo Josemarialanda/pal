@@ -29,6 +29,12 @@ library
       Report
       Repl
       Interpreters.Common.Actions
+      Interpreters.Common.Terms
+      Interpreters.Common.Reduce
+      Interpreters.Common.InferMonad
+      Interpreters.Common.Unify
+      Interpreters.Common.Inference
+      Interpreters.Common.Definitions
       Interpreters.Common.Expectations
       Interpreters.Common.Metatheory
       Interpreters.Common.Search

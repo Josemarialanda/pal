@@ -136,14 +136,16 @@ generateTerms ctx n = reverse (fst (runGen (go n M.empty []) (Seed 0x9E3779B97F4
   where
     sig = signature ctx
     go 0 _ found = pure found
-    go k seen found = do
+    -- Each candidate is inferred once: a repeat (up to the names of bound
+    -- variables) or a term that is too large is skipped first.
+    go k tried found = do
       e <- candidate found
       let key = show (canonical ctx e)
-      case typeOf ctx e of
-        Right d
-          | not (M.member key seen) && termSize e <= maxSize ->
-              go (k - 1) (M.insert key () seen) ((e, Types.deriv'type d) : found)
-        _ -> go (k - 1) seen found
+      if M.member key tried || termSize e > maxSize
+        then go (k - 1) tried found
+        else case typeOf ctx e of
+          Right d -> go (k - 1) (M.insert key () tried) ((e, Types.deriv'type d) : found)
+          Left _ -> go (k - 1) (M.insert key () tried) found
     -- One candidate in four is random all the way down, to find new shapes.
     candidate pool = do
       r <- choose 4

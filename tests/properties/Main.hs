@@ -21,19 +21,24 @@ import Interpreters.Common.Actions
     inferDetailed,
     initialState,
     normalForm,
+    reductionWarnings,
     runInfer,
     substVar,
+    substituteExpr,
     unify,
+    unifyPatterns,
     whnf,
   )
 import qualified Interpreters.Common.Actions as Actions
 import Interpreters.Common.Expectations (checkExpectation)
+import Interpreters.Common.Metatheory (generateTerms)
+import Interpreters.Common.Search (findTerm)
 import Parser.Parser (pExprApp)
 import Program (parsePalSourceLocated, runSteps)
 import System.Exit (exitFailure)
 import Test.QuickCheck
 import Text.Megaparsec (eof, parse)
-import Types (Brackets (..), Ctx, Derivation (..), Expectation (..), Failure (..), Term (..))
+import Types (Brackets (..), Ctx (..), Derivation (..), Expectation (..), Failure (..), Reduction (..), Term (..))
 
 main :: IO ()
 main = do
@@ -61,7 +66,11 @@ properties =
     ("the parser reads back what show prints", property prop_parseShow),
     ("inference does not depend on the names of bound variables", property prop_inferAlpha),
     ("an inferred type passes check", property prop_inferCheck),
-    ("a term checks against its inferred type (bidirectional)", property prop_checkInferred)
+    ("a term checks against its inferred type (bidirectional)", property prop_checkInferred),
+    ("a pattern u[w0 := y] = t is solved, and the solution gives t back", property prop_patternSolution),
+    ("a unifier of two reduction patterns makes them equal", property prop_unifyPatterns),
+    ("a confluent system gets no warnings, a non-confluent rule gets one", once prop_confluenceWarnings),
+    ("every term that proof search finds has the goal type", withMaxSuccess 100 prop_findSound)
   ]
 
 --------------------------------------------------------------------------------
@@ -319,3 +328,51 @@ prop_checkInferred (AnyTerm t) = case inferDetailed computing t of
     Right _ -> property True
     Left failures -> counterexample (show (deriv'type d) <> ": " <> show (fmap failure'err failures)) False
   Left _ -> property True
+
+prop_patternSolution :: AnyTerm -> Property
+prop_patternSolution (AnyTerm t) =
+  forAll (elements names) $ \y ->
+    -- ?u can mention w0 (it is bound by the substitution) and the free
+    -- variables of t except y. w0 is not in t.
+    let problem = Subst (Var "'u") (Var "w0") (Var y)
+        st0 = initialState {inferSupply = 1000, inferScopes = M.singleton "'u" ("w0" : filter (/= y) (freeVars plain t))}
+     in case runInfer (unify plain problem t) st0 of
+          (st, Right ()) ->
+            let back = resolve plain st problem
+             in counterexample (show back) (alphaEqual plain back t)
+          (_, Left err) -> counterexample ("not solved: " <> show err) False
+
+prop_unifyPatterns :: AnyTerm -> Property
+prop_unifyPatterns (AnyTerm t) =
+  forAll (withHoles "p" t) $ \pat ->
+    -- The holes are variables of the pattern; t is an instance of it.
+    let rename = substituteExpr (M.fromList [(v, Var ("p" <> v)) | v <- metaNames pat])
+        pat' = rename pat
+     in case unifyPatterns pat' t of
+          Just s -> counterexample (show s) (substituteExpr s pat' == substituteExpr s t)
+          Nothing -> counterexample "no unifier" False
+  where
+    metaNames = \case
+      Var ('\'' : v) -> ['\'' : v]
+      Con _ _ ts -> concatMap metaNames ts
+      _ -> []
+
+prop_confluenceWarnings :: Property
+prop_confluenceWarnings =
+  -- Each reduction of the computing system, added after the ones before it.
+  let rs = reverse (ctx'reductions computing)
+      ctxBefore k = computing {ctx'reductions = reverse (take k rs)}
+      warnings = concat [reductionWarnings (ctxBefore k) r | (k, r) <- zip [0 ..] rs]
+      wrong = Reduction "PlusBad" (con "Plus" [Var "m", con "Zero" []]) (con "Zero" [])
+   in counterexample (show warnings) (null warnings)
+        .&&. counterexample "no warning for PlusBad" (not (null (reductionWarnings computing wrong)))
+
+prop_findSound :: Property
+prop_findSound =
+  -- The goals are the types of well-typed terms of the λΠ system.
+  forAll (elements (fmap snd (generateTerms plain 1000))) $ \goal ->
+    case findTerm plain 3 goal of
+      Right found ->
+        classify True "the search found a term" $
+          counterexample (show found <> " : " <> show goal) (either (const False) (const True) (checkDetailed plain found goal))
+      Left _ -> property True

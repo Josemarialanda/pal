@@ -45,7 +45,7 @@ import Control.Lens
     (&),
     (.~),
   )
-import Data.List (intercalate)
+import Data.List (elemIndex, intercalate, nub)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Language.Haskell.TH (mkName, nameBase)
@@ -338,7 +338,10 @@ instance Show TermDef where
 --
 --     * 'ctx'types' — the known type constructors.
 --     * 'ctx'exprs' — base expressions and their declared types.
---     * 'ctx'rules' — user-defined typing rules.
+--     * 'ctx'rules' — user-defined typing rules (add them with 'addRule').
+--     * 'ctx'rulesByName', 'ctx'binders' — indexes of the rules, kept by
+--       'addRule': the rules for each constructor, and the binder positions
+--       of each constructor (see 'ruleBinders').
 --     * 'ctx'reductions' — user-defined reductions (definitional equality).
 --     * 'ctx'values' — patterns of the values, for the progress test.
 --     * 'ctx'env'   — local variable bindings (type schemes), introduced by rule hypotheses
@@ -350,6 +353,8 @@ data Ctx = Ctx
   { ctx'types :: [TypeDecl],
     ctx'exprs :: [ExprDecl],
     ctx'rules :: [TypingRule],
+    ctx'rulesByName :: Map String [TypingRule],
+    ctx'binders :: Map (String, Int) [(Int, Int)],
     ctx'reductions :: [Reduction],
     ctx'values :: [Term],
     ctx'env :: Map String Scheme
@@ -386,6 +391,8 @@ instance Semigroup Ctx where
       { ctx'types = ctx'types c1 <> ctx'types c2,
         ctx'exprs = ctx'exprs c1 <> ctx'exprs c2,
         ctx'rules = ctx'rules c1 <> ctx'rules c2,
+        ctx'rulesByName = M.unionWith (<>) (ctx'rulesByName c1) (ctx'rulesByName c2),
+        ctx'binders = M.unionWith (\a b -> nub (a <> b)) (ctx'binders c1) (ctx'binders c2),
         ctx'reductions = ctx'reductions c1 <> ctx'reductions c2,
         ctx'values = ctx'values c1 <> ctx'values c2,
         ctx'env = ctx'env c1 <> ctx'env c2
@@ -397,10 +404,40 @@ instance Monoid Ctx where
       { ctx'types = mempty,
         ctx'exprs = mempty,
         ctx'rules = mempty,
+        ctx'rulesByName = mempty,
+        ctx'binders = mempty,
         ctx'reductions = mempty,
         ctx'values = mempty,
         ctx'env = mempty
       }
+
+-- | Add a rule to the context (it becomes the newest rule), and keep the
+--   indexes 'ctx'rulesByName' and 'ctx'binders' up to date.
+addRule :: TypingRule -> Ctx -> Ctx
+addRule rule ctx =
+  ctx
+    { ctx'rules = rule : ctx'rules ctx,
+      ctx'rulesByName = case fst (typingRule'ruleConclusion rule) of
+        ECon c _ -> M.insertWith (<>) c [rule] (ctx'rulesByName ctx)
+        _ -> ctx'rulesByName ctx,
+      ctx'binders = foldr (\(key, pair) -> M.insertWith (\new old -> nub (old <> new)) key [pair]) (ctx'binders ctx) (ruleBinders rule)
+    }
+
+-- | The binder positions that a rule shows: @((c, n), (i, j))@ means that
+--   argument @i@ of the constructor @c@ with @n@ arguments is a variable
+--   that is bound in argument @j@. A premise @x : t |- u : T@ in a rule with
+--   the conclusion @Pi(x, t, u)@ gives @(("Pi", 3), (0, 2))@.
+ruleBinders :: TypingRule -> [((String, Int), (Int, Int))]
+ruleBinders (TypingRule _ premises (conclusion, _)) = case conclusion of
+  ECon c ps ->
+    nub
+      [ ((c, length ps), (i, j))
+        | Premise hyps (body, _) <- premises,
+          Just j <- [elemIndex body ps],
+          Hypothesis x _ _ <- hyps,
+          Just i <- [elemIndex x ps]
+      ]
+  _ -> []
 
 --------------------------------------------------------------------------------
 

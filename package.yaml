@@ -56,7 +56,7 @@ language: Haskell2010
 library:
   source-dirs: src
   exposed-modules:
-    [PAL, Types, Program, Pretty, Report, Repl, Interpreters.Common.Actions, Interpreters.Common.Expectations, Interpreters.Common.Metatheory, Interpreters.Common.Search, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
+    [PAL, Types, Program, Pretty, Report, Repl, Interpreters.Common.Actions, Interpreters.Common.Terms, Interpreters.Common.Reduce, Interpreters.Common.InferMonad, Interpreters.Common.Unify, Interpreters.Common.Inference, Interpreters.Common.Definitions, Interpreters.Common.Expectations, Interpreters.Common.Metatheory, Interpreters.Common.Search, Interpreters.Core, Interpreters.Debug, Interpreters.IO, Parser.Parser, Parser.Quasi, Parser.Types]
   other-modules:
     [Utils.OneOfN]
   dependencies:

@@ -323,8 +323,8 @@ Run a program with one of three interpreters:
 | Path                                                                       | Contents                         |
 | -------------------------------------------------------------------------- | -------------------------------- |
 | [`src/Types.hs`](src/Types.hs)                                             | Types, terms, rules, the effect  |
-| [`src/Interpreters/Common/Actions.hs`](src/Interpreters/Common/Actions.hs) | Inference, unification, derivations, definition checks |
-| [`src/Interpreters/Common/`](src/Interpreters/Common/) | Also `Expectations` (check, fails, find), `Search` (proof search) and `Metatheory` (preservation and progress tests) |
+| [`src/Interpreters/Common/`](src/Interpreters/Common/) | The engine: `Terms` (variables, binders, substitution), `Reduce` (reductions), `InferMonad`, `Unify`, `Inference` (inference and checking with the rules) and `Definitions` (definitions and their checks); `Actions` re-exports them |
+| | Also `Expectations` (check, fails, find), `Search` (proof search) and `Metatheory` (preservation and progress tests) |
 | [`tests/properties/`](tests/properties/) | Property tests of the engine (QuickCheck) |
 | [`src/Program.hs`](src/Program.hs), [`src/Report.hs`](src/Report.hs)       | Running statements step by step; reporting outcomes |
 | [`tests/`](tests/)                                                           | `pass/` must succeed; `fail/` must fail with the output in its `.out` file |
