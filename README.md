@@ -102,15 +102,17 @@ rule App:                       reduce Beta: App(Lam(x, t, body), a) ~> body[x :
 - Types are equal up to the `reduce` statements. PAL stops a reduction after 10 000 steps.
 - `def Two := Succ(Succ(Zero))` gives a name to a term. PAL infers the type of the body, adds `Two` as a constant of that type, and adds the reduction `Two ~> Succ(Succ(Zero))`. So a definition can also name a type, such as `def Vec2 := Vec(Two, Nat)`.
 - A definition can have parameters: `def Double(n) := Plus(n, n)`. Each parameter gets the type that the body needs (here `n : Nat`), and PAL adds a typing rule and the reduction `Double(n) ~> Plus(n, n)`. The result type can mention a parameter: `def Rep(n) := Replicate(n, Zero)` gives `Rep(n) : Vec(n, Nat)`.
-- A unification with `u[x := a]`, where `u` is still unknown, waits until a later premise solves `u`. If `u` stays unknown, PAL reports a stuck substitution (PAL does no higher-order unification).
+- A unification with `u[x := a]`, where `u` is still unknown, is solved if `a` is a variable that `u` cannot mention (pattern unification): `u[x := y] = Vec(y, Nat)` gives `u := Vec(x, Nat)`. Otherwise it waits until a later premise solves `u`. If `u` stays unknown, PAL reports a stuck substitution. For example, a rule can check its body with its own binder `y` and give the type `Pi(x, t, u)` through the premise `y : t |- body : u[x := y]`.
+- **Implicit arguments:** a variable that appears only in the types of a rule is an unknown that unification solves. So `IApp(f) : u[a := m]` (with `f : Pi(a, Type, u)`) applies `f` to a type `m` that PAL finds from the context: `App(IApp(Id), Zero) : Nat`.
 - A variable cannot escape its binder. For example, in a rule with the conclusion `Weird(x, t, body) : u` and the premise `x : t |- body : u`, the type `u` cannot mention `x`, because `u` is also used outside `x`. Write `u[x := …]` to remove `x`.
-- Limits: PAL does not check that reductions terminate or are confluent, and it accepts `Type : Type`.
+- Limits: the checks of termination and confluence give warnings, not proofs (see below), and PAL accepts `Type : Type`.
 
 [`lambda-pi.pal`](examples/programs/lambda-pi.pal) is a complete example.
 
 **Metatheory tests.** `test preservation` and `test progress` check two classic properties of your type system:
 
 - PAL generates random closed terms from the constructors of your `expr` declarations and rules, and keeps the ones that have a type. It takes most arguments from the terms that it already found, chosen so that their types fit the premises.
+- A term that can only be checked (a `<=` rule, like an unannotated `Lam(x, x)`) is checked against an unknown type, so such terms are tested too. An argument that a rule uses as a type (like `t` in `Ann(e, t) => t`) gets one of the types that PAL already found.
 - **Preservation:** each one-step reduct of a term `e : T` must have a type that is at least as general as `T`.
 - **Progress:** each term that does not reduce must match a `value` pattern.
 - PAL reports the smallest counterexample. The generator has a fixed seed, so the result is the same every time.
@@ -140,13 +142,18 @@ A test that passes is evidence, not a proof: it checks only the terms that PAL g
 ✗ expr Not rejected: undeclared type Bol (did you mean Bool?)
 ✗ expr Id rejected: Arrow takes 2 type arguments, but is given 1
 ✗ rule Weird rejected: premise variable z does not appear in the conclusion W(x)
+```
 
-**Overlaps are warnings.** PAL uses only the newest rule for a constructor and a number of arguments (in each direction), and the first reduction that matches. So it warns when a new rule hides an older one, or when two reductions can match the same term. The definition is still added:
+**Some problems are warnings.** The definition is still added:
+
+- PAL uses only the newest rule for a constructor and a number of arguments (in each direction), so it warns when a new rule hides an older one.
+- **Confluence:** where two reductions apply to the same term (a critical pair), PAL reduces both results to normal form. If the normal forms differ, the result depends on which reduction PAL uses.
+- **Termination:** a reduction must call its own constructor only on smaller arguments (from left to right, the first argument that changes must be a part of the old one), and the constructors of reductions must not call each other in a cycle. PAL checks only this first-order recursion: a substitution on the right side (like β-reduction) is not checked, and a cycle that does stop (like `Even`/`Odd`) still gets a warning.
 
 ```text
 ⚠ rule IsTrueAgain hides rule IsTrue: both are for IsTrue with 1 argument, and PAL uses only the newest
-⚠ reduction IsTrueAny overlaps reduction IsTrueTrue: a term can match both left sides, and PAL uses IsTrueTrue, the first
-```
+⚠ reductions IsTrueTrue and IsTrueAny are not confluent: IsTrue(True) reduces to False and to True
+⚠ reduction Forever may not terminate: IsTrue(b) on the right side has arguments that are not smaller than in IsTrue(b)
 ```
 
 **Errors** point at the part of the expression at fault and list the premises being checked. Every independent error is reported, not just the first:

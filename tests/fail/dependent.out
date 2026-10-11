@@ -12,6 +12,8 @@
     51 | infer Succ(App(Anything, Zero))
        |            ^^^^^^^^^^^^^^^^^^^
     in rule Succ, premise n : Nat  (checking App(Anything, Zero))
+⚠ reduction Spin may not terminate: Loop reduces to a term that contains Loop again
+    at tests/fail/dependent.pal:55:1
 ✗ App(Lam(v, Vec(Loop, Nat), v), VCons(Zero, VNil)) -> [Error] Reduction limit: Loop does not stop reducing
     at tests/fail/dependent.pal:56:38
        |

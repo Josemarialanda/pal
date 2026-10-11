@@ -15,11 +15,13 @@
 ✗ def True rejected: True is already declared
     at tests/fail/definitions.pal:24:1
 ⚠ rule IsTrueAgain hides rule IsTrue: both are for IsTrue with 1 argument, and PAL uses only the newest
-    at tests/fail/definitions.pal:33:1
-⚠ reduction IsTrueAny overlaps reduction IsTrueTrue: a term can match both left sides, and PAL uses IsTrueTrue, the first
-    at tests/fail/definitions.pal:39:1
-✗ def Twice rejected: definition Twice lists the parameter b more than once
+    at tests/fail/definitions.pal:35:1
+⚠ reductions IsTrueTrue and IsTrueAny are not confluent: IsTrue(True) reduces to False and to True
+    at tests/fail/definitions.pal:41:1
+⚠ reduction Forever may not terminate: IsTrue(b) on the right side has arguments that are not smaller than in IsTrue(b)
     at tests/fail/definitions.pal:42:1
+✗ def Twice rejected: definition Twice lists the parameter b more than once
+    at tests/fail/definitions.pal:45:1
 ✗ def NotBool rejected: the body of NotBool has no type: Unknown expression → Weird
-    at tests/fail/definitions.pal:43:1
+    at tests/fail/definitions.pal:46:1
 2 checks passed

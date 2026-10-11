@@ -23,8 +23,10 @@ fails Not
 def Bad := Weird(True)
 def True := True
 
--- Overlaps are warnings: the definition is added, but PAL uses only one of
--- the rules (the newest) or one of the reductions (the first).
+-- These are warnings: the definition is added. A rule can hide an older one,
+-- and reductions can be not confluent or not terminate.
+expr False : Bool
+
 rule IsTrue:
   b : Bool
 ->
@@ -36,7 +38,8 @@ rule IsTrueAgain:
   IsTrue(b) : Bool
 
 reduce IsTrueTrue: IsTrue(True) ~> True
-reduce IsTrueAny:  IsTrue(b) ~> True
+reduce IsTrueAny:  IsTrue(b) ~> False   -- not confluent with IsTrueTrue
+reduce Forever:    IsTrue(b) ~> IsTrue(b)   -- does not terminate
 
 -- Definitions with parameters.
 def Twice(b, b) := b

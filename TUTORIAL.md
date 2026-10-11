@@ -439,9 +439,10 @@ A definition can also have parameters: `def Double(n) := Plus(n, n)`. PAL finds 
 
 ### Limits
 
-- If `u` in `u[x := a]` is still unknown, PAL waits until a later premise solves `u`. If no premise does, PAL reports a **stuck substitution**. PAL does no higher-order unification, so give the type of a function before you apply it.
+- If `u` in `u[x := a]` is still unknown, PAL solves it when `a` is a variable that `u` cannot mention, or else waits until a later premise solves `u`. If no premise does, PAL reports a **stuck substitution**. So give the type of a function before you apply it.
+- A variable that appears only in the types of a rule is an unknown, which unification finds: an **implicit argument**. For example, with `IApp(f) : u[a := m]` and `f : Pi(a, Type, u)`, `App(IApp(Id), Zero)` has type `Nat`, and PAL finds `m = Nat`.
 - A type cannot mention a variable outside its binder. A `Let` rule with the conclusion `Let(x, value, body) : u` gives a **scope error** when the type of `body` mentions `x`. Write `u[x := value]` instead.
-- PAL does not check that your reductions terminate. It stops after 10 000 steps with a **reduction limit** error.
+- PAL warns when a reduction may not terminate, or when two reductions are not confluent (a term reduces to two different normal forms). These checks are simple, so a warning is not a proof. A reduction that does not stop gives a **reduction limit** error after 10 000 steps.
 - `Type : Type` is inconsistent as a logic, but it is sufficient to experiment.
 
 ---

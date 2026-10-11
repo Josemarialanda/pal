@@ -277,8 +277,8 @@ validateRule ctx rule@(Types.TypingRule name premises (conclusion, conclusionTyp
 --   * every variable of its right side also appears in its left side;
 --   * every constructor it mentions is declared and correctly applied.
 validateReduction :: Types.Ctx -> Types.Reduction -> [Types.Diagnostic]
-validateReduction ctx (Types.Reduction name lhs rhs) =
-  shape <> unbound <> nub (concatMap (validateTerm ctx False) [lhs, rhs]) <> overlappingReductions ctx lhs name
+validateReduction ctx reduction@(Types.Reduction name lhs rhs) =
+  shape <> unbound <> nub (concatMap (validateTerm ctx False) [lhs, rhs]) <> reductionWarnings ctx reduction
   where
     shape = case lhs of
       Types.ECon _ _
@@ -307,23 +307,76 @@ overlappingRules ctx rule@(Types.TypingRule name _ (conclusion, _)) = case concl
   where
     checks r = Types.typingRule'mode r == Types.Checking
 
--- | A warning for each earlier reduction whose left side can match the
---   same term as the new one. PAL uses the first reduction that matches,
---   so the new one does not apply to those terms.
-overlappingReductions :: Types.Ctx -> Types.Term -> String -> [Types.Diagnostic]
-overlappingReductions ctx lhs name =
-  [ warningDiag ("reduction " <> name <> " overlaps reduction " <> old <> ": a term can match both left sides, and PAL uses " <> old <> ", the first")
-    | Types.Reduction old lhs' _ <- reverse (Types.ctx'reductions ctx),
-      patternsOverlap (rename "1" lhs') (rename "2" lhs)
+-- | Warnings about a new reduction: where it may not be confluent with
+--   the reductions so far (see 'criticalPairs'), and where it may not
+--   terminate (see 'terminationWarnings').
+reductionWarnings :: Types.Ctx -> Types.Reduction -> [Types.Diagnostic]
+reductionWarnings ctx new = criticalPairs ctx new <> terminationWarnings ctx' new
+  where
+    ctx' = insertDefinition (OneOf5_4 new) ctx
+
+-- | A warning for each critical pair of the new reduction that does not
+--   join. A critical pair is a term where two reductions (or one reduction
+--   at two places) apply, so it reduces in two ways. If the two results
+--   have different normal forms, the result depends on which reduction PAL
+--   uses: the reductions are not confluent.
+criticalPairs :: Types.Ctx -> Types.Reduction -> [Types.Diagnostic]
+criticalPairs ctx new =
+  [ warningDiag ("reductions " <> name1 <> " and " <> name2 <> " " <> verdict <> ": " <> show t <> " reduces to " <> show a <> " and to " <> show b)
+    | (_, (name1, name2, t, a, b, verdict)) <- M.toList firstPerPair
   ]
   where
-    -- Keep the variables of the two patterns apart.
-    rename suffix = substituteExpr (M.fromList [(v, Types.Var (v <> "'" <> suffix)) | v <- exprVars lhs <> concatMap (\(Types.Reduction _ l _) -> exprVars l) (Types.ctx'reductions ctx)])
+    -- One warning for each pair of reductions (the first critical pair).
+    firstPerPair =
+      M.fromListWith
+        (\_ first -> first)
+        [ (minMaxNames name1 name2, (name1, name2, t, a, b, verdict))
+          | old <- reverse (Types.ctx'reductions ctx) <> [new],
+            (outer, inner) <- [(new, old), (old, new)],
+            (t, a, b) <- overlaps outer (apart outer inner) (Types.reduction'name outer == Types.reduction'name inner),
+            Just verdict <- [problem a b],
+            let name1 = Types.reduction'name inner
+                name2 = Types.reduction'name outer
+        ]
+    minMaxNames x y = (min x y, max x y)
+    ctx' = insertDefinition (OneOf5_4 new) ctx
+    -- The inner reduction with variables that the outer one does not use.
+    apart (Types.Reduction _ lhs _) (Types.Reduction n l r) =
+      let taken = exprVars lhs <> exprVars l
+          names = M.fromList [(v, Types.Var (freshName taken v)) | v <- exprVars l, v `elem` exprVars lhs]
+       in Types.Reduction n (substituteExpr names l) (substituteExpr names r)
+    -- Each place in the outer left side (not a variable) where the inner
+    -- left side unifies: the term, and its two reducts.
+    overlaps (Types.Reduction _ lhs rhs) (Types.Reduction _ l r) same =
+      [ (t, apply (substituteExpr s rhs), apply (rebuild (substituteExpr s r)))
+        | (sub, rebuild, atRoot) <- patternPlaces lhs,
+          not (same && atRoot),
+          Just s <- [unifyPatterns l sub],
+          let t = apply (substituteExpr s lhs)
+      ]
+    apply = forceTerm ctx'
+    -- The two reducts join if they have the same normal form. If one of
+    -- them has no normal form within the step limit, PAL cannot tell.
+    problem a b = case (normalForm ctx' a, normalForm ctx' b) of
+      (Right a', Right b')
+        | canonical ctx' a' == canonical ctx' b' && freeVars ctx' a' == freeVars ctx' b' -> Nothing
+        | otherwise -> Just "are not confluent"
+      _ -> Just "may not be confluent (the reductions do not stop, so PAL cannot compare the results)"
 
--- | Can two patterns match the same term? (First-order unification of the
---   patterns.)
-patternsOverlap :: Types.Term -> Types.Term -> Bool
-patternsOverlap a0 b0 = isJust (go M.empty [(a0, b0)])
+-- | The subterms of a pattern that are not variables, each with a way to
+--   put a new term in its place, and whether it is the root.
+patternPlaces :: Types.Term -> [(Types.Term, Types.Term -> Types.Term, Bool)]
+patternPlaces = go True id
+  where
+    go root rebuild t = case t of
+      Types.Con b c ts ->
+        (t, rebuild, root)
+          : concat [go False (\x -> rebuild (Types.Con b c (before <> [x] <> drop 1 after))) a | (i, a) <- zip [0 ..] ts, let (before, after) = splitAt i ts]
+      _ -> []
+
+-- | A most general unifier of two patterns (first-order), if there is one.
+unifyPatterns :: Types.Term -> Types.Term -> Maybe (Map String Types.Term)
+unifyPatterns a0 b0 = fmap (\s -> M.map (resolve s) s) (go M.empty [(a0, b0)])
   where
     go s [] = Just s
     go s ((a, b) : rest) = case (walk s a, walk s b) of
@@ -340,6 +393,61 @@ patternsOverlap a0 b0 = isJust (go M.empty [(a0, b0)])
       Types.Var x | Just t <- M.lookup x s -> resolve s t
       Types.Con b c ts -> Types.Con b c (fmap (resolve s) ts)
       t -> t
+
+-- | Warnings if a new reduction may not terminate. PAL checks first-order
+--   recursion only:
+--
+--   * each call of the reduction's own constructor on its right side must
+--     have smaller arguments: from left to right, the first argument that
+--     differs must be a part of the argument on the left side (like
+--     @Plus(Succ(m), n) ~> Succ(Plus(m, n))@);
+--   * the constructors of the reductions must not call each other in a
+--     cycle.
+--
+--   A substitution on the right side (like β-reduction) can make new
+--   redexes; PAL does not check that.
+terminationWarnings :: Types.Ctx -> Types.Reduction -> [Types.Diagnostic]
+terminationWarnings ctx (Types.Reduction name lhs rhs) = case lhs of
+  Types.ECon f ps ->
+    [ warningDiag ("reduction " <> name <> " may not terminate: " <> message)
+      | call@(Types.ECon _ rs) <- callsOf f (length ps) rhs,
+        not (smaller rs ps),
+        let message = if null ps then f <> " reduces to a term that contains " <> f <> " again" else show call <> " on the right side has arguments that are not smaller than in " <> show lhs
+    ]
+      <> [ warningDiag ("reduction " <> name <> " may not terminate: " <> f <> " and " <> intercalate ", " others <> " call each other, and PAL does not check calls in a cycle")
+           | Just others <- [cycleThrough f]
+         ]
+  _ -> []
+  where
+    -- The calls of a constructor with this number of arguments in a term.
+    callsOf f n = \case
+      t@(Types.ECon c ts) -> [t | c == f, length ts == n] <> concatMap (callsOf f n) ts
+      Types.Subst body x e -> callsOf f n body <> callsOf f n x <> callsOf f n e
+      _ -> []
+    -- Lexicographic order: the first argument that differs is a part of
+    -- the old one.
+    smaller (r : rs) (p : ps)
+      | r == p = smaller rs ps
+      | otherwise = r `isPartOf` p
+    smaller _ _ = False
+    isPartOf r = \case
+      Types.ECon _ ts -> any (\t -> t == r || r `isPartOf` t) ts
+      _ -> False
+    -- The constructors that the reductions for each constructor call.
+    heads = nub [c | Types.Reduction _ (Types.ECon c _) _ <- Types.ctx'reductions ctx]
+    calls c = nub [d | Types.Reduction _ (Types.ECon c' _) r <- Types.ctx'reductions ctx, c' == c, d <- constructors r, d `elem` heads, d /= c]
+    constructors = \case
+      Types.ECon c ts -> c : concatMap constructors ts
+      Types.Subst body x e -> concatMap constructors [body, x, e]
+      _ -> []
+    -- A cycle from f back to f through other constructors.
+    cycleThrough f = go [] (calls f)
+      where
+        go _ [] = Nothing
+        go seen (c : rest)
+          | c `elem` seen = go seen rest
+          | f `elem` calls c = Just (reverse (c : seen))
+          | otherwise = go (c : seen) (calls c <> rest)
 
 warningDiag :: String -> Types.Diagnostic
 warningDiag = Types.Diagnostic Types.SevWarning
@@ -443,6 +551,20 @@ inferDetailed ctx e = runDetailed ctx (inferM ctx [] e)
 --   of them.
 checkDetailed :: Types.Ctx -> Types.Expr -> Types.Type -> Either (NonEmpty Types.Failure) Types.Derivation
 checkDetailed ctx e t = runDetailed ctx (modifyI (\s -> s {inferRigid = freeVars ctx t}) >> checkM ctx [] e t)
+
+-- | The type of an expression: inferred if possible. A term whose rules
+--   only check it (e.g. an unannotated @Lam(x, x)@ with a @<=@ rule) is
+--   checked against an unknown type instead, so that its checking rule
+--   finds the type.
+typeOf :: Types.Ctx -> Types.Expr -> Either (NonEmpty Types.Failure) Types.Derivation
+typeOf ctx e = case inferDetailed ctx e of
+  Left failures
+    | any (isCannotInfer . Types.failure'err) failures -> runDetailed ctx (fresh >>= checkM ctx [] e)
+  result -> result
+  where
+    isCannotInfer = \case
+      Types.CannotInfer _ -> True
+      _ -> False
 
 -- | Run inference from the initial state, and collect its result.
 runDetailed :: Types.Ctx -> Infer (Types.Type, Types.Derivation) -> Either (NonEmpty Types.Failure) Types.Derivation
@@ -817,8 +939,9 @@ instantiate ctx t = do
 --   α-equivalence (see 'unifyArgs'). When the terms do not match, and a
 --   reduction applies to either of them, both are reduced to weak head
 --   normal form and compared again, so types are equal up to computation.
---   A unification with a substitution @u[x := e]@, where @u@ is not solved
---   yet, waits until it is (see 'postpone').
+--   A unification with a substitution @u[x := e]@, where @u@ is not solved,
+--   is solved if it is a pattern (see 'solvePattern'), or else
+--   waits until @u@ is solved (see 'postpone').
 unify :: Types.Ctx -> Types.Type -> Types.Type -> Infer ()
 unify ctx = unifyUnder ctx []
 
@@ -833,23 +956,29 @@ unifyUnder ctx bound expected got = do
   s <- getsI inferSubst
   case (forceTerm ctx (applySubst s expected), forceTerm ctx (applySubst s got)) of
     (Types.TVar a, Types.TVar b) | sameVar a b -> pure ()
-    (Types.TVar a, t) | isMeta a -> bindMeta ctx a (renameFree ctx (M.fromList [(r, l) | (l, r) <- reverse bound, l /= r]) t)
-    (t, Types.TVar a) | isMeta a -> bindMeta ctx a (renameFree ctx (M.fromList [(l, r) | (l, r) <- reverse bound, l /= r]) t)
+    (Types.TVar a, t) | isMeta a -> bindMeta ctx a (toExpected t)
+    (t, Types.TVar a) | isMeta a -> bindMeta ctx a (toGot t)
     (e@(Types.TCon en ets), g@(Types.TCon gn gts))
       | en == gn && length ets == length gts -> do
           before <- getsI id
           unifyArgs ctx bound en ets gts `catchErr` \err -> convert e g (modifyI (const before)) (throwErr err)
-    (e@(Types.Subst body _ _), g) -> stuck body e g e
-    (e, g@(Types.Subst body _ _)) -> stuck body e g g
+    (e@(Types.Subst body x r), g) -> stuck body x r (toExpected g) e g e
+    (e, g@(Types.Subst body x r)) -> stuck body x r (toGot e) e g g
     (e, g) -> convert e g (pure ()) (throwErr (Types.Mismatch e g))
   where
     sameVar a b = case (lookup a bound, lookup b [(r, l) | (l, r) <- bound]) of
       (Nothing, Nothing) -> a == b
       (inner, inner') -> inner == Just b && inner' == Just a
-    -- A substitution whose body is a metavariable waits for that
-    -- metavariable. Another substitution cannot be applied.
-    stuck body e g term = case body of
-      Types.TVar m | isMeta m -> postpone ctx bound e g term
+    -- A term from the other side, with the bound names of this side.
+    toExpected = renameFree ctx (M.fromList [(r, l) | (l, r) <- reverse bound, l /= r])
+    toGot = renameFree ctx (M.fromList [(l, r) | (l, r) <- reverse bound, l /= r])
+    -- A substitution whose body is a metavariable: solve it if it is a
+    -- pattern (see 'solvePattern'), or wait for the metavariable. Another
+    -- substitution cannot be applied.
+    stuck body x r other e g term = case body of
+      Types.TVar m | isMeta m -> do
+        solved <- solvePattern ctx m x r other
+        unless solved (postpone ctx bound e g term)
       _ -> throwErr (Types.StuckSubstitution term)
     -- If a reduction applies to either side, reset the state and unify the
     -- weak head normal forms. Otherwise, give up.
@@ -859,6 +988,29 @@ unifyUnder ctx bound expected got = do
           e' <- fromEither (whnf ctx e)
           g' <- fromEither (whnf ctx g)
           if e' == e && g' == g then giveUp else reset >> unifyUnder ctx bound e' g'
+
+-- | Solve @?m[x := y] = t@ if it is a pattern (Miller's pattern fragment):
+--   the replacement @y@ is a rigid variable outside the scope of @?m@. Then
+--   the only solution is @?m := t[y := x]@, if @x@ is not already free in
+--   @t@. If @y@ is in the scope of @?m@ (or the replacement is not a
+--   variable), @?m := t@ could also be a solution, so the problem is not
+--   solved here. Returns whether it was solved.
+solvePattern :: Types.Ctx -> String -> Types.Term -> Types.Term -> Types.Type -> Infer Bool
+solvePattern ctx m x r t = case (x, r) of
+  (Types.TVar xv, Types.TVar yv)
+    | not (isMeta yv) -> do
+        s <- getsI inferSubst
+        scope <- getsI (M.lookup m . inferScopes)
+        rigid <- getsI inferRigid
+        let resolve v = case applySubst s (Types.TVar v) of
+              Types.TVar n -> n
+              _ -> v
+            outside = maybe False (\names -> yv `notElem` fmap resolve names <> rigid) scope
+            free = freeVars ctx t
+        if not outside || (xv /= yv && xv `elem` free)
+          then pure False
+          else True <$ bindMeta ctx m (if xv == yv then t else renameFree ctx (M.singleton yv xv) t)
+  _ -> pure False
 
 -- | Record a solution for a metavariable, after the occurs check and the
 --   scope check (see 'checkScope').

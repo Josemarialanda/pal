@@ -142,3 +142,22 @@ check Rep(Double(Succ(Zero))) : Vec(Succ(Succ(Zero)), Nat)
 check Pick(Zero, Nat) : Nat
 check Pick(Nat, VNil) : Type
 fails Double(Nat)
+
+-- Pattern unification: u[x := y] = Vec(y, Nat), where y is the rule's own
+-- binder (not in the scope of u), has one solution: u := Vec(x, Nat).
+rule LamS:
+  t : Type
+  y : t |- body : u[x := y]
+->
+  LamS(y, t, body) : Pi(x, t, u)
+
+check LamS(k, Nat, Replicate(k, Zero)) : Pi(m, Nat, Vec(m, Nat))
+
+-- Implicit arguments: m appears only in a type, so unification finds it.
+rule IApp:
+  f : Pi(a, Type, u)
+->
+  IApp(f) : u[a := m]
+
+check App(IApp(Id), Zero) : Nat
+check App(IApp(Id), VNil) : Vec(Zero, a)

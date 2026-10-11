@@ -25,6 +25,7 @@ where
 
 import Control.Monad (foldM, replicateM)
 import Data.Bits (shiftR, xor)
+import Data.Either (isLeft)
 import Data.List (elemIndex, minimumBy, nub)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -36,14 +37,16 @@ import Interpreters.Common.Actions
     binderNames,
     binders,
     canonical,
+    checkDetailed,
+    exprVars,
     freeVars,
-    inferDetailed,
     initialState,
     matchConclusion,
     ruleTypeVars,
     runInfer,
     stepRoot,
     substituteExpr,
+    typeOf,
     unify,
   )
 import qualified Types
@@ -77,29 +80,16 @@ runTest ctx spec@(Types.TestSpec property n) =
     rename e = substituteExpr (M.fromList (zip (nub (binderNames ctx e)) (fmap Types.Var shortNames))) e
     shortNames = [c : suffix | suffix <- "" : fmap show [1 :: Int ..], c <- "xyzwvu"]
 
--- | The one-step reducts of @e : T@ that do not have the type @T@.
+-- | The one-step reducts of @e : T@ that do not have the type @T@. Each
+--   reduct is checked against @T@ (with the free variables of @T@ rigid),
+--   so a reduct may also be a term that can only be checked. A
+--   counterexample shows the reduct's own type, or why it has none.
 notPreserved :: Types.Ctx -> Types.Expr -> Types.Type -> [Types.Counterexample]
 notPreserved ctx e t =
-  [ Types.NotPreserved e t e' result
+  [ Types.NotPreserved e t e' (either (Left . Types.failure'err . NE.head) (Right . Types.deriv'type) (typeOf ctx e'))
     | e' <- reducts ctx e,
-      let result = either (Left . Types.failure'err . NE.head) (Right . Types.deriv'type) (inferDetailed ctx e'),
-      not (either (const False) (generalEnough ctx t) result)
+      isLeft (checkDetailed ctx e' t)
   ]
-
--- | Is the type @t'@ at least as general as @t@, up to computation? Then a
---   term of type @t'@ can be used where @t@ is expected. The free variables
---   of @t'@ become metavariables; those of @t@ stay rigid.
-generalEnough :: Types.Ctx -> Types.Type -> Types.Type -> Bool
-generalEnough ctx t t' =
-  case runInfer (unify ctx t (rename t')) initialState {inferSupply = 1} of
-    (_, Right ()) -> True
-    (_, Left _) -> False
-  where
-    rename ty = substAll [(v, Types.Var ('\'' : "g" <> v)) | v <- freeVars ctx ty] ty
-    substAll pairs = \case
-      Types.Var v -> fromMaybe (Types.Var v) (lookup v pairs)
-      Types.Con b c ts -> Types.Con b c (fmap (substAll pairs) ts)
-      Types.Subst body x e -> Types.Subst (substAll pairs body) (substAll pairs x) (substAll pairs e)
 
 -- | All the terms that a term reduces to in one step: one reduction, at the
 --   root or inside.
@@ -149,7 +139,7 @@ generateTerms ctx n = reverse (fst (runGen (go n M.empty []) (Seed 0x9E3779B97F4
     go k seen found = do
       e <- candidate found
       let key = show (canonical ctx e)
-      case inferDetailed ctx e of
+      case typeOf ctx e of
         Right d
           | not (M.member key seen) && termSize e <= maxSize ->
               go (k - 1) (M.insert key () seen) ((e, Types.deriv'type d) : found)
@@ -176,6 +166,8 @@ generateTerms ctx n = reverse (fst (runGen (go n M.empty []) (Seed 0x9E3779B97F4
               meta v = Types.Var ('\'' : tag <> v)
               typeVars = M.fromList [(v, meta v) | v <- ruleTypeVars rule]
               premiseType j = listToMaybe [t | Types.Premise [] (p, t) <- premises, Just j == elemIndex p ps]
+              -- The types in the rule: of its premises, hypotheses and conclusion.
+              ruleTypes = snd (Types.typingRule'ruleConclusion rule) : concat [t : fmap Types.hyp'type hs | Types.Premise hs (_, t) <- premises]
               -- The argument j: a name, a term chosen by type, or a
               -- random one.
               fill (args, st) j = case (lookup j named, premiseType j) of
@@ -191,6 +183,13 @@ generateTerms ctx n = reverse (fst (runGen (go n M.empty []) (Seed 0x9E3779B97F4
                   case mapMaybe fits sample of
                     (e, st') : _ -> pure (e : args, st')
                     [] -> (\e -> (e : args, st)) <$> argument (fmap fst pool) boundIn j
+                -- An argument that the rule uses as a type, and that no premise
+                -- checks (like t in Ann(e, t) => t): a type from the pool.
+                (Nothing, Nothing)
+                  | Types.Var v <- ps !! j,
+                    v `elem` concatMap exprVars ruleTypes,
+                    not (null pool) ->
+                      (\ty -> (fromMaybe (Types.Var v) ty : args, st)) <$> pick (fmap snd pool)
                 _ -> (\e -> (e : args, st)) <$> argument (fmap fst pool) boundIn j
           (args, _) <- foldM fill ([], initialState {inferSupply = 1}) [0 .. k - 1]
           pure (Types.ECon c (reverse args))

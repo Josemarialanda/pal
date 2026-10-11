@@ -51,3 +51,20 @@ fails App(Lam(x, x), True)
 -- Checking still finds type errors.
 fails Ann(Lam(x, If(x, True, Lam(y, y))), Arrow<Bool, Bool>)
 fails Ann(Lam(x, x), Arrow<Bool, Arrow<Bool, Bool>>)
+
+-- Metatheory: the tests also generate terms that can only be checked
+-- (like Lam(x, x)): such a term is checked against an unknown type.
+reduce Beta:     App(Ann(Lam(x, body), Arrow<s, t>), a) ~> Ann(body[x := Ann(a, s)], t)
+reduce AnnAnn:   Ann(Ann(e, t), u) ~> Ann(e, u)
+reduce AnnTrue:  Ann(True, t) ~> True
+reduce AnnFalse: Ann(False, t) ~> False
+reduce IfTrue:   If(True, a, b) ~> a
+reduce IfFalse:  If(False, a, b) ~> b
+
+value True
+value False
+value Lam(x, body)
+value Ann(Lam(x, body), t)
+
+test preservation
+test progress

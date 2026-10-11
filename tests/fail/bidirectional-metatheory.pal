@@ -1,0 +1,48 @@
+-- A wrong β-reduction in a bidirectional system: the argument gets the
+-- result type.
+
+type Bool
+type Arrow<a, b>
+
+expr True  : Bool
+expr False : Bool
+
+rule Ann:
+  e <= t
+->
+  Ann(e, t) => t
+
+rule Lam:
+  x : a |- body <= b
+->
+  Lam(x, body) <= Arrow<a, b>
+
+rule App:
+  f => Arrow<a, b>
+  x <= a
+->
+  App(f, x) => b
+
+rule If:
+  c <= Bool
+  t <= a
+  e <= a
+->
+  If(c, t, e) <= a
+
+
+
+
+
+reduce Beta: App(Ann(Lam(x, body), Arrow<s, t>), a) ~> Ann(a, t)
+reduce AnnAnn: Ann(Ann(e, t), u) ~> Ann(e, u)
+reduce AnnTrue: Ann(True, t) ~> True
+reduce AnnFalse: Ann(False, t) ~> False
+reduce IfTrue: If(True, a, b) ~> a
+reduce IfFalse: If(False, a, b) ~> b
+value True
+value False
+value Lam(x, body)
+value Ann(Lam(x, body), t)
+test preservation
+test progress

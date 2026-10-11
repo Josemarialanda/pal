@@ -1,0 +1,4 @@
+✗ test preservation — App(Ann(Lam(x, Lam(y, x)), Arrow<Bool, Arrow<Bool, Bool>>), If(False, False, True)) : Arrow<Bool, Bool> reduces to Ann(If(False, False, True), Arrow<Bool, Bool>), which has no type: Type mismatch: expected Arrow<Bool, Bool>, got Bool
+    at tests/fail/bidirectional-metatheory.pal:47:1
+✓ test progress  (518 well-typed terms)
+1 of 2 checks failed
