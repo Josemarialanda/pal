@@ -9,15 +9,16 @@
 -- checked ('Types.Failure').
 module Interpreters.Common.Inference where
 
-import Control.Monad (forM, forM_)
+import Control.Monad (forM_)
 import Data.Either (fromRight)
-import Data.List (nub)
+import Data.List (groupBy, nub)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, listToMaybe)
 import Interpreters.Common.InferMonad
 import Interpreters.Common.Reduce
+import Interpreters.Common.Relations
 import Interpreters.Common.Terms
 import Interpreters.Common.Unify
 import qualified Types
@@ -139,7 +140,7 @@ inferM ctx path e =
         -- A generalised binding is instantiated fresh at each use.
         Types.EVar v ->
           case M.lookup v (Types.ctx'env ctx) of
-            Just scheme -> leaf Types.ByAssumption <$> instantiateScheme ctx scheme
+            Just scheme -> countUse v >> (leaf Types.ByAssumption <$> instantiateScheme ctx scheme)
             Nothing -> maybe (throwErr (Types.UnknownExpr v)) (fmap (leaf Types.ByDeclaration) . instantiate ctx) (lookupExprType ctx v)
         -- A substitution written in the expression: apply it, then infer.
         Types.Subst {} -> case forceTerm ctx e of
@@ -319,22 +320,33 @@ applyRule ctx path target rule expected = do
       <> [([], instantiateTerm conclTy0)]
   -- A checking rule (see 'checkM') learns from the expected type first.
   forM_ expected $ \t -> unify ctx t (instantiateTerm conclTy0)
-  children <- forM premises $ \premise@(Types.PremiseWith mode hyps (pExpr, pTy)) -> do
-    let subject = substituteExpr (fst <$> env) pExpr
-        subjectPath = case pExpr of
-          Types.EVar v | Just (_, rel) <- M.lookup v env -> path <> rel
-          _ -> path
-    withFrame (Types.Frame name premise subject) . attempt ctx subjectPath $ do
-      locals <- traverse (bindHypothesis env) hyps
-      let ctx' = ctx {Types.ctx'env = M.fromList locals <> Types.ctx'env ctx}
-      -- A synthesis premise infers; the others check against the type.
-      (_, derivation) <- case mode of
-        Types.Synthesis -> do
-          (tGot, derivation) <- inferM ctx' subjectPath subject
-          unify ctx pTy tGot
-          pure (tGot, derivation)
-        _ -> checkM ctx' subjectPath subject pTy
-      pure derivation {Types.deriv'assumptions = locals}
+  -- Premises next to each other that share (written share) use the same
+  -- variables in scope; the others split them (see 'Types.premise'share').
+  let runPremise premise@(Types.PremiseWith mode hyps (pExpr, pTy)) = do
+        let subject = substituteExpr (fst <$> env) pExpr
+            subjectPath = case pExpr of
+              Types.EVar v | Just (_, rel) <- M.lookup v env -> path <> rel
+              _ -> path
+        withFrame (Types.Frame name premise subject) . attempt ctx subjectPath $ do
+          locals <- traverse (bindHypothesis env) hyps
+          let ctx' = ctx {Types.ctx'env = M.fromList locals <> Types.ctx'env ctx}
+          -- A relation premise is derived with the rules of its relation. A
+          -- synthesis premise infers; the others check against the type.
+          derivation <-
+            withUsage [(v, Types.hyp'usage h) | ((v, _), h) <- zip locals hyps] $
+              if Types.isRelation (pExpr, pTy)
+                then deriveRelation ctx pTy
+                else case mode of
+                  Types.Synthesis -> do
+                    (tGot, derivation) <- inferM ctx' subjectPath subject
+                    unify ctx pTy tGot
+                    pure derivation
+                  _ -> snd <$> checkM ctx' subjectPath subject pTy
+          pure derivation {Types.deriv'assumptions = locals}
+      runGroup = \case
+        [p] -> pure <$> runPremise p
+        ps -> sharing (fmap runPremise ps)
+  children <- concat <$> traverse runGroup (groupBy (\a b -> Types.premise'share a && Types.premise'share b) premises)
   -- The premises have solved the metavariables, so substitutions like
   -- @u[x := a]@ in the conclusion can now be applied.
   s <- getsI inferSubst
@@ -369,15 +381,3 @@ instantiateScheme ctx (Types.Forall vs t) = do
   let t' = applySubst renamed t
   declareScopes ctx (M.elems renamed) [([], t')]
   pure t'
-
--- | The type variables of a rule: every variable in its types, except the
---   pattern variables of its conclusion (those stand for the matched
---   expressions).
-ruleTypeVars :: Types.TypingRule -> [String]
-ruleTypeVars (Types.TypingRule _ premises (conclExpr, conclTy)) =
-  filter (`notElem` exprVars conclExpr) (nub (concatMap freeTypeVars (conclTy : concatMap premiseTypeList premises)))
-
--- | Apply a type substitution throughout a rule.
-renameRule :: Subst -> Types.TypingRule -> Types.TypingRule
-renameRule s rule@(Types.TypingRule _ premises (ce, ct)) =
-  rule {Types.typingRule'premises = fmap (substPremise s) premises, Types.typingRule'ruleConclusion = (ce, applySubst s ct)}

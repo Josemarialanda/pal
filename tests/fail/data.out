@@ -1,0 +1,12 @@
+✗ rule Node rejected: undeclared type Thing (declare it first: type Thing)
+    at tests/fail/data.pal:4:1
+✗ rule RecTree rejected: undeclared type Thing (declare it first: type Thing)
+    at tests/fail/data.pal:4:1
+✗ reduce RecTreeLeaf rejected: undeclared constructor RecTree (declare it first with a rule for RecTree(a, b, c, d, e, f, g, h))
+    at tests/fail/data.pal:4:1
+✗ reduce RecTreeNode rejected:
+    • undeclared constructor RecTree (declare it first with a rule for RecTree(a, b, c, d, e, f, g, h))
+    • undeclared constructor Node (declare it first with a rule for Node(a, b, c))
+    at tests/fail/data.pal:4:1
+✗ value Node(v1, v2, v3) rejected: undeclared constructor Node (declare it first with a rule for Node(a, b, c))
+    at tests/fail/data.pal:4:1

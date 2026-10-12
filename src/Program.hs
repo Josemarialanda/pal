@@ -146,6 +146,7 @@ fromStmt = \case
   SDef d -> ADefineTerm d
   STest spec -> ATest spec
   SFind t d -> AExpect (ExpectInhabited t d)
+  SHolds j -> AExpect (ExpectHolds j)
   SInfer e -> AInfer e
   SCheck e t -> AExpect (ExpectType e t)
   SFails e -> AExpect (ExpectFailure e)

@@ -45,8 +45,10 @@ import Types
     Type,
     TypeDecl (..),
     TypingRule (..),
+    isRelation,
     modeSymbol,
     propertyName,
+    usageWord,
   )
 import Ui.Embed (embedExamples, embedFile)
 import Ui.Http (Request (..), Response (..), header)
@@ -64,7 +66,7 @@ themesJson = $(embedThemes "ui/themes")
 -- | The example programs from @examples/programs@, as JSON (see
 --   'embedExamples'), in the order of the README.
 examplesJson :: String
-examplesJson = $(embedExamples "examples/programs" ["arith", "stlc", "stlc-ext", "lists", "hm", "logic", "lambda-pi"])
+examplesJson = $(embedExamples "examples/programs" ["arith", "stlc", "stlc-ext", "lists", "hm", "logic", "lambda-pi", "subtyping", "linear"])
 
 -- | The page as served: 'indexHtml' with the themes and the examples
 --   inlined in place of its @/*THEMES*/[]@ and @/*EXAMPLES*/[]@
@@ -187,6 +189,9 @@ item (Step located outcome) = object (("start", JNumber (loc'start located)) : f
           <> [("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
       (AExpect x@(ExpectFailure e), Expected _ _ result met) ->
         [("kind", JString "fails"), ("expr", showJ e), ("text", showJ x)] <> withoutOk (inference result) <> [("ok", JBool met)]
+      (AExpect x@(ExpectHolds j), Expected _ diagnostics result met) ->
+        [("kind", JString "holds"), ("expected", showJ j), ("text", showJ x), ("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
+          <> either (\fs -> [("error", JString (errMessage (failure'err (NE.head fs))))]) (\d -> [("derivation", derivation d), ("latex", JString (derivationLatex d))]) result
       (AExpect x@(ExpectInhabited t _), Expected _ diagnostics result met) ->
         [("kind", JString "find"), ("expected", showJ t), ("text", showJ x), ("ok", JBool met), ("diagnostics", JArray (fmap diagnostic diagnostics))]
           <> either (\fs -> [("error", JString (errMessage (failure'err (NE.head fs))))]) (\d -> [("term", showJ (deriv'expr d)), ("derivation", derivation d), ("latex", JString (derivationLatex d))]) result
@@ -251,12 +256,14 @@ rule (TypingRuleWith name premises conclusion mode) =
       ("conclusion", judgment mode conclusion)
     ]
   where
-    premise (PremiseWith m hyps j) =
-      object [("hypotheses", JArray (fmap hypothesis hyps)), ("judgment", judgment m j)]
-    hypothesis (Hypothesis e t g) =
-      object [("expr", showJ e), ("type", showJ t), ("gen", JBool g)]
+    premise (PremiseFull m hyps j shared) =
+      object [("hypotheses", JArray (fmap hypothesis hyps)), ("judgment", judgment m j), ("share", JBool shared)]
+    hypothesis (HypothesisWith e t g u) =
+      object [("expr", showJ e), ("type", showJ t), ("gen", JBool g), ("usage", JString (filter (/= ' ') (usageWord u)))]
     judgment :: Mode -> (Expr, Type) -> Json
-    judgment m (e, t) = object [("expr", showJ e), ("type", showJ t), ("mode", JString (modeSymbol m))]
+    judgment m j@(e, t)
+      | isRelation j = object [("relation", showJ t)]
+      | otherwise = object [("expr", showJ e), ("type", showJ t), ("mode", JString (modeSymbol m))]
 
 showJ :: (Show a) => a -> Json
 showJ = JString . show

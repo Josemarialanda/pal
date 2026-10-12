@@ -1,0 +1,57 @@
+-- Subtyping: the simply typed λ-calculus with a relation a <: b.
+--
+-- A rule whose conclusion is not e : T defines a relation. PAL derives a
+-- relation judgment by searching backwards through the rules of the
+-- relation, like Prolog, and `holds J` expects that it can.
+
+type Top
+type Bool
+type Nat
+type Int
+type Arrow<a, b>
+
+expr True : Bool
+expr Zero : Nat
+expr Neg  : Arrow<Int, Int>
+
+-- Subtyping: reflexive, Top above everything, Nat inside Int, and arrows
+-- that are contravariant in the argument and covariant in the result.
+rule SubRefl:
+->
+  a <: a
+
+rule SubTop:
+->
+  a <: Top
+
+rule SubNatInt:
+->
+  Nat <: Int
+
+rule SubArrow:
+  a2 <: a1
+  b1 <: b2
+->
+  Arrow<a1, b1> <: Arrow<a2, b2>
+
+-- Typing with subsumption: an argument can have a smaller type.
+rule Lam:
+  x : t |- body : b
+->
+  Lam(x, t, body) : Arrow<t, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : c
+  c <: a
+->
+  App(f, x) : b
+
+holds Nat <: Top
+holds Arrow<Int, Nat> <: Arrow<Nat, Int>
+fails Int <: Nat
+fails Arrow<Nat, Nat> <: Arrow<Int, Nat>     -- the argument is contravariant
+
+check App(Neg, Zero) : Int                   -- Nat <: Int
+check App(Lam(f, Arrow<Nat, Int>, App(f, Zero)), Neg) : Int
+fails App(Neg, True)                         -- Bool is not an Int

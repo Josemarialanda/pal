@@ -316,6 +316,8 @@ The files in [`examples/programs/`](examples/programs/) combine the ideas above 
 | `hm.pal`       | Hindley–Milner                  | `gen` (§7)                                  |
 | `logic.pal`    | Propositional logic             | Types as propositions                       |
 | `lambda-pi.pal` | Dependent types (λΠ)           | Types that mention expressions (§9)         |
+| `subtyping.pal` | Subtyping                      | A relation `a <: b` beside `e : T`          |
+| `linear.pal`   | Linear and affine types         | `lin`, `aff` and `share`                    |
 
 **Sums.** `Case` checks each branch with its own variable in scope:
 
@@ -335,6 +337,38 @@ rule Case:
 ✓ Lam(f, Absurd(f))            :: Implies<False, a>                -- ex falso
 ✗ Lam(p, App(p, p))            -> Infinite type                    -- proves nothing
 ```
+
+**Data types.** Writing the rules of a data type by hand is long. A `data` declaration writes them for you:
+
+```haskell
+data Nat = Zero | Succ(Nat)
+```
+
+This gives the type `Nat`, the constructors `Zero` and `Succ`, and a recursor `RecNat(n, zero, succ_1, succ_rec1, succ)`. In the branch `succ`, `succ_1` is the predecessor and `succ_rec1` is the result for it, so `RecNat(n, Zero, m, r, Succ(Succ(r)))` doubles `n`. Reductions such as `RecNat(Zero, …) ~> zero` make it compute.
+
+**Linear types.** In a linear type system, a value is a resource: it must be used exactly once. Mark the hypothesis `lin` (or `aff` for at most once):
+
+```haskell
+rule Lam:
+  x : lin a |- body : b
+->
+  Lam(x, body) : Lolli<a, b>
+```
+
+Now `Lam(x, x)` is fine, but `Lam(x, Pair(x, x))` and `Lam(x, True)` are usage errors. The premises of a rule split the resources, so their uses add up. For the two branches of an `If`, mark the premises `share`: each branch may use the same resources. See [`linear.pal`](examples/programs/linear.pal).
+
+**Subtyping.** Some systems need judgments of other forms than `e : T`. A rule whose conclusion is, for example, `a <: b` defines a *relation*, and other rules can use it as a premise:
+
+```haskell
+rule SubArrow:                       rule App:
+  a2 <: a1                             f : Arrow<a, b>
+  b1 <: b2                             x : c
+->                                     c <: a
+  Arrow<a1, b1> <: Arrow<a2, b2>     ->
+                                       App(f, x) : b
+```
+
+PAL proves `c <: a` by searching backwards through the rules for `<:`. `holds Arrow<Int, Nat> <: Arrow<Nat, Int>` checks a judgment directly. See [`subtyping.pal`](examples/programs/subtyping.pal).
 
 **Proof search.** You can also ask PAL for the proof. `find T` searches backwards from `T` through the rules, and shows the smallest term of that type that it finds:
 

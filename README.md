@@ -43,6 +43,7 @@ The dev shell's `pal` and `pal-ui` rebuild from your working tree first, so they
 | Statement                           | Meaning                                                   |
 | ----------------------------------- | --------------------------------------------------------- |
 | `type T`, `type T<a, b>`            | Declare a type, with its parameters                       |
+| `data T<a> = C1 \| C2(a, T<a>)`      | An inductive type: its type, constructors, recursor `RecT`, reductions and values |
 | `expr C : T`                        | Axiom: constant `C` has type `T`                          |
 | `rule Name:` *premises* `->` *conclusion* | Inference rule                                      |
 | `reduce Name: lhs ~> rhs`           | Reduction: a term that matches `lhs` is equal to `rhs`    |
@@ -51,17 +52,21 @@ The dev shell's `pal` and `pal-ui` rebuild from your working tree first, so they
 | `check e : T`                       | Expect `e` to have type `T` (type variables may be renamed) |
 | `fails e`                           | Expect `e` to be a type error                             |
 | `find T`, `find T N`                | Proof search: find a term of type `T`, at most `N` rules deep (default 6) |
+| `holds J`                           | Expect the relation judgment `J` (like `a <: b`) to be derivable; `fails J` expects the opposite |
 | `value P`                           | Declare a pattern of values, e.g. `value Succ(n)` (for `test progress`) |
 | `test preservation [N]`             | Test that reduction keeps the type, on N generated terms (default 5000) |
 | `test progress [N]`                 | Test that a well-typed term that does not reduce is a value |
 
-Premises come in four shapes:
+Premises come in these shapes:
 
 ```haskell
 x : T                    -- plain:       x must have type T
 x : A |- body : B        -- hypothesis:  check body with x : A in scope (⊢ also works)
 x : A, y : B |- e : C    -- several hypotheses
 x : gen A |- body : B    -- generalised: x is polymorphic in body (let-polymorphism)
+x : lin A |- body : B    -- linear: body uses x exactly once
+x : aff A |- body : B    -- affine: body uses x at most once
+share t : A              -- shares the variables in scope with the next share premises
 ```
 
 **Bidirectional typing.** A judgment can have a direction: `e => T` infers (synthesises) the type of `e`, and `e <= T` checks `e` against a known `T`. A plain `e : T` premise checks too. For a rule without a direction, checking falls back to inference, so plain rules work as before.
@@ -144,6 +149,46 @@ A test that passes is evidence, not a proof: it checks only the terms that PAL g
 ✗ rule Weird rejected: premise variable z does not appear in the conclusion W(x)
 ```
 
+**Other judgment forms.** A rule whose conclusion is not `e : T` defines a *relation*: subtyping, kinding, type equality, effects and so on. Write it with an infix operator made of symbols (`a <: b`, `t :: k`, `a == b`) or with a prefix name (`Sub(a, b)`, `Le(m, n)`):
+
+```haskell
+rule SubTop:          rule SubArrow:
+->                      a2 <: a1
+  a <: Top              b1 <: b2
+                      ->
+                        Arrow<a1, b1> <: Arrow<a2, b2>
+
+rule App:
+  f : Arrow<a, b>
+  x : c
+  c <: a
+->
+  App(f, x) : b
+```
+
+- A typing rule can have relation premises (like `c <: a` above), and a rule for a relation can have relation premises (only those).
+- PAL derives a relation judgment by searching backwards through the rules of the relation, like Prolog: in order of definition, with backtracking, at most 64 rules deep. If it finds no derivation, the error is `Cannot derive Bool <: Int`.
+- `holds J` expects that `J` can be derived, and `fails J` expects that it cannot.
+- Limit: a relation does not see the variables in scope (the typing context), so a rule like kinding of a type variable from the context cannot be written yet.
+
+[`subtyping.pal`](examples/programs/subtyping.pal) is a complete example.
+
+**Linear and affine types.** A hypothesis `x : lin A` must be used exactly once in its premise, and `x : aff A` at most once. PAL counts the uses:
+
+- Premises split the variables in scope: the uses of a linear variable in the premises of a rule add up, so `Pair(x, x)` uses `x` twice. This is the context splitting of linear logic.
+- Premises marked `share` that are next to each other use the same variables: of them, the one with the most uses counts. Use it for rules whose premises are alternatives, like the branches of `If`.
+- The error is, for example, `Usage error: x is linear, so it must be used once, but it is used 2 times`.
+
+[`linear.pal`](examples/programs/linear.pal) is a complete example.
+
+**Data types.** `data List<a> = Nil | Cons(a, List<a>)` stands for the statements that you would write for an inductive type:
+
+- the type `type List<a>`, and the constructors: `expr Nil : List<a>` and a rule for `Cons`;
+- the recursor `RecList(l, nil, cons_1, cons_2, cons_rec2, cons)`: for each constructor a branch, with the fields in scope and, for each field of the type itself, the result of the recursion on it (`cons_rec2`). It does case analysis and structural recursion, so `Lam(l, RecList(l, Zero, h, t, r, Succ(r)))` is the length of a list;
+- a reduction for each constructor, e.g. `RecList(Nil, …) ~> nil`, and a `value` pattern for each constructor (for `test progress`).
+
+`:ctx` shows the generated definitions. If one of them is rejected (for example, a field type that is not declared), the definitions that need it are rejected too; the first error names the cause.
+
 **Some problems are warnings.** The definition is still added:
 
 - PAL uses only the newest rule for a constructor and a number of arguments (in each direction), so it warns when a new rule hides an older one.
@@ -184,6 +229,8 @@ A test that passes is evidence, not a proof: it checks only the terms that PAL g
 | `Reduction limit`        | The reductions of a term do not stop                   |
 | `Cannot infer`           | A term that only checks (a `<=` rule) is where a type must be inferred |
 | `Scope error`            | A variable would be used outside its binder            |
+| `Cannot derive`          | No rule derives a relation judgment, like `Bool <: Int` |
+| `Usage error`            | A linear variable is not used once, or an affine one more than once |
 
 **Derivations.** On success PAL has built a derivation tree, the proof that the expression has its type. `pal --derivations`, the REPL's `:derive` and the web UI draw it:
 
@@ -263,6 +310,8 @@ A public copy runs at <https://pal-ui.vercel.app> (from `main`) and <https://pal
 | [`hm.pal`](examples/programs/hm.pal)             | Hindley–Milner (let-polymorphism)              |
 | [`logic.pal`](examples/programs/logic.pal)       | Propositional logic via Curry–Howard           |
 | [`lambda-pi.pal`](examples/programs/lambda-pi.pal) | Dependent types (λΠ) with `Vec` and β-reduction |
+| [`subtyping.pal`](examples/programs/subtyping.pal) | Subtyping with a relation `a <: b` |
+| [`linear.pal`](examples/programs/linear.pal) | Linear and affine types (`lin`, `aff`, `share`) |
 
 ```sh
 run-examples --list              # everything, including the Haskell examples

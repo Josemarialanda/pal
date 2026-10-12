@@ -74,7 +74,11 @@ import Types
     Type,
     TypeDecl (..),
     TypingRule (..),
+    Usage (..),
+    isOperator,
+    isRelation,
     modeSymbol,
+    usageMessage,
     pattern ECon,
     pattern EVar,
     pattern TVar,
@@ -196,6 +200,8 @@ prettyExpr st = \case
 -- | A constructor and its arguments, in its own brackets.
 prettyCon :: Style -> [Attr] -> (Term -> String) -> Brackets -> String -> [Term] -> String
 prettyCon st codes _ _ n [] = paint st codes n
+prettyCon st _ pretty _ n [a, b]
+  | isOperator n = pretty a <> " " <> paint st [Bold, Yellow] n <> " " <> pretty b
 prettyCon st codes pretty b n ts =
   paint st codes n <> punct st open <> intercalate (punct st ", ") (fmap pretty ts) <> punct st close
   where
@@ -213,15 +219,22 @@ prettyJudgment st = prettyJudgmentWith st Plain
 
 -- | A judgment with the symbol of its mode (@:@, @=>@ or @<=@).
 prettyJudgmentWith :: Style -> Mode -> (Expr, Type) -> String
-prettyJudgmentWith st m (e, t) = prettyExpr st e <> punct st (" " <> modeSymbol m <> " ") <> prettyType st t
+prettyJudgmentWith st m j@(e, t)
+  | isRelation j = prettyType st t
+  | otherwise = prettyExpr st e <> punct st (" " <> modeSymbol m <> " ") <> prettyType st t
 
 prettyPremise :: Style -> Premise -> String
-prettyPremise st (PremiseWith m [] j) = prettyJudgmentWith st m j
-prettyPremise st (PremiseWith m hs j) =
-  intercalate (punct st ", ") (fmap hypothesis hs) <> punct st " ⊢ " <> prettyJudgmentWith st m j
+prettyPremise st (PremiseFull m hs j shared) =
+  (if shared then keyword st "share" <> " " else "")
+    <> (if null hs then "" else intercalate (punct st ", ") (fmap hypothesis hs) <> punct st " ⊢ ")
+    <> prettyJudgmentWith st m j
   where
-    hypothesis (Hypothesis e t g) =
-      prettyExpr st e <> punct st " : " <> (if g then keyword st "gen" <> " " else "") <> prettyType st t
+    hypothesis (HypothesisWith e t g u) =
+      prettyExpr st e <> punct st " : " <> (if g then keyword st "gen" <> " " else "") <> usage u <> prettyType st t
+    usage = \case
+      Unrestricted -> ""
+      Linear -> keyword st "lin" <> " "
+      Affine -> keyword st "aff" <> " "
 
 -- | A typing rule drawn as an inference rule: premises above a bar, the
 --   conclusion below, and the rule's name beside the bar.
@@ -291,6 +304,8 @@ prettyErr st err
       ReductionLimit t -> label "reduction limit" <> ": " <> prettyExpr st t <> " does not stop reducing"
       StuckSubstitution t -> label "stuck substitution" <> ": " <> prettyType st t <> " (its body is not known)"
       CannotInfer e -> label "cannot infer" <> " the type of " <> prettyExpr st e <> ": its rule only checks it against a known type"
+      NotDerivable j -> label "cannot derive" <> " " <> prettyType st j
+      UsageError x u n -> label "usage error" <> ": " <> usageMessage x u n
       ScopeEscape x t -> label "scope error" <> ": " <> paint st [Italic] x <> " escapes its binder in " <> prettyType st t
       CustomErr msg -> label msg
   where

@@ -36,6 +36,7 @@ import Data.Char (isLower)
 import Data.Maybe (listToMaybe)
 import Data.Void (Void)
 import Interpreters.Common.Search (defaultDepth)
+import Parser.Data (expandData)
 import Parser.Types (Located (..), PalStmt (..), Span (..), SpanTree (..))
 import Text.Megaparsec
   ( Parsec,
@@ -46,9 +47,12 @@ import Text.Megaparsec
     many,
     manyTill,
     notFollowedBy,
+    oneOf,
     option,
+    optional,
     sepBy,
     sepBy1,
+    some,
     try,
     (<|>),
   )
@@ -75,7 +79,13 @@ import Types
     Type,
     TypeDecl (TypeDecl),
     TypingRule (..),
+    Usage (..),
+    isRelation,
+    operatorChars,
+    premise'share,
+    relationSubject,
     pattern EVar,
+    pattern PremiseWith,
   )
 
 -- | The base parser type for PAL programs.
@@ -131,6 +141,7 @@ keyword w = lexeme (try (string w <* notFollowedBy identChar))
 -- * @reduce@ definitions ('SReduce')
 -- * @value@ patterns ('SValue') and @test@ statements ('STest')
 -- * @find@ statements ('SFind')
+-- * @holds@ statements ('SHolds')
 -- * @def@ definitions ('SDef')
 -- * @infer@ expressions ('SInfer')
 -- * @check@ expectations ('SCheck') and @fails@ expectations ('SFails')
@@ -142,17 +153,49 @@ palProgram = fmap loc'value <$> palProgramLocated
 -- | Like 'palProgram', also recording where each statement starts and the
 --   spans of the expression of each @infer@, @check@ and @fails@.
 palProgramLocated :: Parser [Located PalStmt]
-palProgramLocated = sc *> many located <* eof
+palProgramLocated = sc *> (concat <$> many located) <* eof
   where
+    -- A statement, or the statements that a data declaration stands for
+    -- (all at the place of the declaration).
     located = do
       start <- getOffset
-      (stmt, spans) <- statement
-      pure (Located start spans stmt)
+      fmap (\(stmt, spans) -> Located start spans stmt) <$> statements
+    statements =
+      (fmap (,Nothing) <$> pData)
+        <|> (pure <$> statement)
     statement =
-      ((,Nothing) <$> (pType <|> pExpr <|> pRule <|> pReduce <|> pDef <|> pValue <|> pTest <|> pFind))
+      ((,Nothing) <$> (pType <|> pExpr <|> pRule <|> pReduce <|> pDef <|> pValue <|> pTest <|> pFind <|> pHolds))
         <|> pInfer
         <|> pCheck
         <|> pFails
+
+------------------------------------------------------------
+-- Data declarations
+------------------------------------------------------------
+
+-- | Parse a declaration of an inductive type; it stands for several
+-- statements (see "Parser.Data"), e.g.:
+--
+-- > data Nat = Zero | Succ(Nat)
+-- > data List<a> = Nil | Cons(a, List<a>)
+pData :: Parser [PalStmt]
+pData = do
+  _ <- keyword "data"
+  name <- upper "the name of a data type"
+  params <- option [] (angles (ident `sepBy` symbol ","))
+  _ <- symbol "="
+  constructors <- pConstructor `sepBy1` symbol "|"
+  pure (expandData name params constructors)
+  where
+    pConstructor = do
+      c <- upper "a constructor"
+      fields <- option [] (parens (pTypeExpr `sepBy` symbol ","))
+      pure (c, fields)
+    upper what = do
+      n <- ident
+      case n of
+        c : _ | isLower c -> fail (what <> " starts with an uppercase letter")
+        _ -> pure n
 
 ------------------------------------------------------------
 -- Type declarations
@@ -302,63 +345,89 @@ pDef = do
 -- > x : Num
 -- > x : a |- body : b
 -- > x : a, y : b ⊢ body : c
+-- > a <: b
+-- > Sub(a, b)
 --
 -- A hypothesis may be marked @gen@ to generalise its type (let-polymorphism):
 --
 -- > x : gen a |- body : b
 pPremise :: Parser Premise
 pPremise = do
-  hyps <- pHypothesis `sepBy1` symbol ","
+  shared <- option False (True <$ keyword "share")
+  items <- pItem `sepBy1` symbol ","
   hasHypotheses <- option False (True <$ (symbol "|-" <|> symbol "⊢"))
-  if hasHypotheses
-    then
-      if all ((== Plain) . fst) hyps
-        then (\(m, j) -> PremiseWith m (fmap snd hyps) j) <$> pBinding
-        else fail "a hypothesis is written x : T (with ':')"
-    else case hyps of
-      [(m, Hypothesis e t False)] -> pure (PremiseWith m [] (e, t))
-      [_] -> fail "'gen' is only allowed in hypotheses (before '|-')"
-      _ -> fail "expected '|-' after a list of hypotheses"
+  p <-
+    if hasHypotheses
+      then do
+        hyps <- traverse hypothesis items
+        (m, j) <- pItem >>= premiseJudgment
+        pure (PremiseWith m hyps j)
+      else case items of
+        [item] -> (\(m, j) -> PremiseWith m [] j) <$> premiseJudgment item
+        _ -> fail "expected '|-' after a list of hypotheses"
+  pure p {premise'share = shared}
+  where
+    hypothesis = \case
+      ItemTyping Plain e@(EVar _) t g u -> pure (HypothesisWith e t g u)
+      _ -> fail "a hypothesis is written x : T (with ':')"
+    premiseJudgment item = do
+      (m, j@(e, _)) <- plainItem item
+      case e of
+        EVar _ -> pure (m, j)
+        _ | isRelation j -> pure (m, j)
+        _ -> fail "the subject of a premise is a variable of the conclusion, like x : T"
 
--- | Parse a hypothesis: a variable with its type, optionally marked @gen@.
--- Alone, without @|-@, it is a premise, so it can have a mode (see
--- 'pMode').
---
--- > x : a
--- > x : gen a
--- > x => a
-pHypothesis :: Parser (Mode, Hypothesis)
-pHypothesis = do
-  v <- ident
-  m <- pMode
-  generalize <- if m == Plain then option False (True <$ keyword "gen") else pure False
-  (\t -> (m, Hypothesis (EVar v) t generalize)) <$> pTypeExpr
+-- | One judgment of a premise or a conclusion: a typing judgment (@e : T@,
+--   @e => T@, @e <= T@; in a hypothesis maybe with @gen@, @lin@ or @aff@),
+--   or a relation (@a <: b@, or @Sub(a, b)@ with a prefix name).
+data Item
+  = ItemTyping Mode Expr Type Bool Usage
+  | ItemRelation Term
 
--- | Parse a variable with its type and mode, e.g.:
---
--- > x : Num
--- > body <= b
-pBinding :: Parser (Mode, (Expr, Type))
-pBinding = do
-  v <- ident
-  m <- pMode
-  t <- pTypeExpr
-  pure (m, (EVar v, t))
+-- | A judgment without the marks of hypotheses (@gen@, @lin@, @aff@).
+plainItem :: Item -> Parser (Mode, (Expr, Type))
+plainItem = \case
+  ItemTyping m e t False Unrestricted -> pure (m, (e, t))
+  ItemTyping {} -> fail "'gen', 'lin' and 'aff' are only allowed in hypotheses (before '|-')"
+  ItemRelation r -> pure (Plain, (relationSubject, r))
 
--- | Parse the mode of a judgment: @:@, @=>@ (synthesis) or @<=@ (checking).
-pMode :: Parser Mode
-pMode = (Synthesis <$ symbol "=>") <|> (Checking <$ symbol "<=") <|> (Plain <$ symbol ":")
+pItem :: Parser Item
+pItem = do
+  t <- pExprApp
+  symbolOrNothing <- optional pJudgmentSymbol
+  case symbolOrNothing of
+    Nothing -> case t of
+      Con {} -> pure (ItemRelation t)
+      _ -> fail "expected a judgment, like x : T or a <: b"
+    Just (Left m) -> do
+      generalize <- if m == Plain then option False (True <$ keyword "gen") else pure False
+      usage <- if m == Plain then option Unrestricted ((Linear <$ keyword "lin") <|> (Affine <$ keyword "aff")) else pure Unrestricted
+      (\ty -> ItemTyping m t ty generalize usage) <$> pTypeExpr
+    Just (Right op) -> (\r -> ItemRelation (Con Parens op [t, r])) <$> pExprApp
+
+-- | The symbol of a judgment: a mode (@:@, @=>@, @<=@), or the operator of a
+--   relation (made of symbols, like @<:@ or @::@). The symbols of the
+--   language itself (@->@, @~>@, @:=@, @|-@) are not operators.
+pJudgmentSymbol :: Parser (Either Mode String)
+pJudgmentSymbol = try $ do
+  op <- some (oneOf operatorChars)
+  result <- case op of
+    ":" -> pure (Left Plain)
+    "=>" -> pure (Left Synthesis)
+    "<=" -> pure (Left Checking)
+    _
+      | op `elem` ["->", "~>", ":=", "|-"] -> fail ("unexpected " <> op)
+      | otherwise -> pure (Right op)
+  sc
+  pure result
 
 -- | Parse the rule conclusion with its mode, e.g.:
 --
 -- > Add(x, y) : Num
 -- > Lam(x, body) <= Arrow<a, b>
+-- > Arrow<a1, b1> <: Arrow<a2, b2>
 pConclusion :: Parser (Mode, (Expr, Type))
-pConclusion = do
-  e <- pExprApp
-  m <- pMode
-  t <- pTypeExpr
-  pure (m, (e, t))
+pConclusion = pItem >>= plainItem
 
 ------------------------------------------------------------
 -- Expression inference
@@ -393,7 +462,22 @@ pFails :: Parser (PalStmt, Maybe SpanTree)
 pFails = do
   _ <- keyword "fails"
   (e, spans) <- pExprAppLocated
-  pure (SFails e, Just spans)
+  -- An infix relation, like fails Bool <: Nat.
+  relation <- optional $ do
+    op <- pJudgmentSymbol >>= either (const (fail "expected a relation operator, like <:")) pure
+    (\r -> Con Parens op [e, r]) <$> pExprApp
+  pure (maybe (SFails e, Just spans) (\r -> (SFails r, Nothing)) relation)
+
+-- | Parse an expectation that a relation judgment can be derived, e.g.:
+--
+-- > holds Arrow<Top, Nat> <: Arrow<Nat, Top>
+-- > holds Sub(Nat, Top)
+pHolds :: Parser PalStmt
+pHolds = do
+  _ <- keyword "holds"
+  pItem >>= \case
+    ItemRelation r -> pure (SHolds r)
+    ItemTyping {} -> fail "holds takes a relation, like a <: b; use check for e : T"
 
 ------------------------------------------------------------
 -- Expression applications
@@ -435,8 +519,8 @@ pExprAppLocated = do
   substitutions start (term, SpanTree (Span start end) (fmap snd args))
   where
     arguments brackets open close = do
-      -- `<` must not be the start of `<=` (a checking judgment).
-      _ <- try (string open <* notFollowedBy (char '=')) <* sc
+      -- `<` must not start an operator, like `<=` (a checking judgment) or `<:`.
+      _ <- try (string open <* notFollowedBy (oneOf operatorChars)) <* sc
       args <- pExprAppLocated `sepBy` symbol ","
       _ <- string close
       end <- getOffset

@@ -1,0 +1,26 @@
+✗ Lam(b, Lam(x, IfSplit(b, x, x))) -> [Error] Usage error: x is linear, so it must be used once, but it is used 2 times
+    at tests/fail/linear.pal:28:21
+       |
+    28 | infer Lam(b, Lam(x, IfSplit(b, x, x)))
+       |                     ^^^^^^^^^^^^^^^^
+    in rule Lam, premise x : lin a ⊢ body : a  (checking IfSplit(b, x, x))
+    in rule Lam, premise x : lin Bool ⊢ body : b  (checking Lam(x, IfSplit(b, x, x)))
+✗ Lam(x, Lam(x, x)) -> [Error] Usage error: x is linear, so it must be used once, but it is not used
+    at tests/fail/linear.pal:31:14
+       |
+    31 | infer Lam(x, Lam(x, x))
+       |              ^^^^^^^^^
+    in rule Lam, premise x : lin a ⊢ body : Lolli<b, b>  (checking Lam(x, x))
+✗ Lam(x, Lam(y, Pair(y, y))) -> [Error] Usage error: y is linear, so it must be used once, but it is used 2 times
+    at tests/fail/linear.pal:34:21
+       |
+    34 | infer Lam(x, Lam(y, Pair(y, y)))
+       |                     ^^^^^^^^^^
+    in rule Lam, premise x : lin a ⊢ body : Tensor<a, a>  (checking Pair(y, y))
+    in rule Lam, premise x : lin b ⊢ body : c  (checking Lam(y, Pair(y, y)))
+    and: Usage error: x is linear, so it must be used once, but it is not used
+      at tests/fail/linear.pal:34:14
+         |
+      34 | infer Lam(x, Lam(y, Pair(y, y)))
+         |              ^^^^^^^^^^^^^^^^^^
+      in rule Lam, premise x : lin a ⊢ body : Lolli<b, Tensor<b, b>>  (checking Lam(y, Pair(y, y)))

@@ -1,0 +1,17 @@
+✗ App(Not, Zero) -> [Error] Cannot derive Nat <: Bool
+    at tests/fail/relations.pal:27:7
+       |
+    27 | infer App(Not, Zero)
+       |       ^^^^^^^^^^^^^^
+    in rule App, premise Nat <: Bool
+✗ holds Top <: Nat — Cannot derive Top <: Nat
+    at tests/fail/relations.pal:28:1
+✗ fails Nat <: Top — but the rules derive it
+    at tests/fail/relations.pal:29:1
+✗ rule Uses rejected: rule Uses uses the relation a == b, but no rule concludes a judgment of this form
+    at tests/fail/relations.pal:33:1
+✗ rule Mixed rejected: rule Mixed concludes a relation, so its premises must be relations too, not x : a
+    at tests/fail/relations.pal:39:1
+✗ holds Nat ~~ Top — unknown relation Nat ~~ Top: no rule concludes a judgment of this form
+    at tests/fail/relations.pal:44:1
+3 of 3 checks failed

@@ -9,7 +9,7 @@
 -- unifications and the scopes of the metavariables.
 module Interpreters.Common.InferMonad where
 
-import Control.Monad (ap)
+import Control.Monad (ap, forM, forM_)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
@@ -36,12 +36,16 @@ data InferState = InferState
     inferScopes :: !(Map String [String]),
     -- | Rigid variables that every metavariable can mention: the free
     --   variables of the type that a top-level @check@ checks against.
-    inferRigid :: [String]
+    inferRigid :: [String],
+    -- | The linear and affine variables in scope (see 'Types.Usage').
+    inferLinear :: Map String Types.Usage,
+    -- | How often each of them has been used so far.
+    inferUses :: Map String Int
   }
 
 -- | The state at the start of inference.
 initialState :: InferState
-initialState = InferState 0 M.empty [] [] [] [] M.empty []
+initialState = InferState 0 M.empty [] [] [] [] M.empty [] M.empty M.empty
 
 -- | A unification that waits for a metavariable: one side is a
 --   substitution @u[x := e]@ whose body @u@ is not solved yet. It is tried
@@ -147,3 +151,55 @@ fresh = do
 -- | Replace the given type variables with fresh ones.
 freshen :: [String] -> Infer Subst
 freshen vs = M.fromList . zip vs <$> traverse (const fresh) vs
+
+-- | Count a use of a variable from the context, if it is linear or affine.
+countUse :: String -> Infer ()
+countUse v = modifyI $ \s ->
+  if M.member v (inferLinear s)
+    then s {inferUses = M.insertWith (+) v 1 (inferUses s)}
+    else s
+
+-- | Run an action with the variables of some hypotheses in scope, each
+--   with its usage (see 'Types.Usage'). Then check how often each linear
+--   or affine one was used. A variable of the same name outside is hidden
+--   for the action, and its count is kept.
+withUsage :: [(String, Types.Usage)] -> Infer a -> Infer a
+withUsage bound action = do
+  saved <- getsI (\s -> [(v, M.lookup v (inferLinear s), M.lookup v (inferUses s)) | (v, _) <- bound])
+  modifyI $ \s ->
+    s
+      { inferLinear = foldr bind (inferLinear s) bound,
+        inferUses = foldr (M.delete . fst) (inferUses s) bound
+      }
+  result <- action `catchErr` \err -> restore saved >> throwErr err
+  uses <- getsI inferUses
+  restore saved
+  forM_ bound $ \(v, u) -> check v u (M.findWithDefault 0 v uses)
+  pure result
+  where
+    bind (v, Types.Unrestricted) = M.delete v
+    bind (v, u) = M.insert v u
+    restore saved = modifyI $ \s ->
+      s
+        { inferLinear = foldr (\(v, l, _) -> maybe (M.delete v) (M.insert v) l) (inferLinear s) saved,
+          inferUses = foldr (\(v, _, n) -> maybe (M.delete v) (M.insert v) n) (inferUses s) saved
+        }
+    check v u n = case u of
+      Types.Linear | n /= 1 -> throwErr (Types.UsageError v u n)
+      Types.Affine | n > 1 -> throwErr (Types.UsageError v u n)
+      _ -> pure ()
+
+-- | Run the actions of premises that share the variables in scope (see
+--   'Types.premise'share'): each starts from the same counts of uses, and
+--   then each variable counts as used as often as in the action that used
+--   it most.
+sharing :: [Infer a] -> Infer [a]
+sharing actions = do
+  before <- getsI inferUses
+  results <- forM actions $ \action -> do
+    modifyI (\s -> s {inferUses = before})
+    r <- action
+    after <- getsI inferUses
+    pure (r, after)
+  modifyI (\s -> s {inferUses = M.unionsWith max (before : fmap snd results)})
+  pure (fmap fst results)

@@ -16,6 +16,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Ord (comparing)
 import Interpreters.Common.Inference
 import Interpreters.Common.Reduce
+import Interpreters.Common.Relations (relationRules)
 import Interpreters.Common.Terms
 import Polysemy (Member, Sem)
 import Polysemy.State (State, get, modify)
@@ -193,29 +194,55 @@ validateTerm ctx inType0 = nub . go inType0
 
 -- | A rule is well formed when:
 --
---   * its conclusion is a constructor pattern, like @Add(x, y)@;
+--   * its conclusion is a constructor pattern, like @Add(x, y)@, or a
+--     relation, like @a <: b@ (then all its premises are relations);
 --   * every variable its premises mention also appears in that conclusion
 --     (otherwise the premise could never be checked);
 --   * every type it mentions is declared and correctly applied.
 validateRule :: Types.Ctx -> Types.TypingRule -> [Types.Diagnostic]
-validateRule ctx rule@(Types.TypingRule name premises (conclusion, conclusionType)) =
-  shape <> unbound <> nub (concatMap (validateType ctx') types) <> overlappingRules ctx rule
+validateRule ctx rule@(Types.TypingRule name premises conclusionJ@(conclusion, conclusionType)) =
+  shape <> relationPremisesOnly <> unbound <> unknownRelations <> nub (concatMap (validateType ctx') types) <> overlappingRules ctx rule
   where
-    -- The rule's types may mention its own constructor.
+    -- The rule's types may mention its own constructor, and its premises
+    -- its own relation.
     ctx' = insertDefinition (OneOf5_3 rule) ctx
-    shape = case conclusion of
-      Types.ECon _ _ -> []
-      _ -> [errorDiag ("the conclusion of rule " <> name <> " must be a constructor applied to its parts, like " <> name <> "(x, y)")]
+    concludesRelation = Types.isRelation conclusionJ
+    shape
+      | concludesRelation = case conclusionType of
+          Types.ECon _ (_ : _) -> []
+          _ -> [errorDiag ("the conclusion of rule " <> name <> " must be a judgment, like x : T or a <: b")]
+      | otherwise = case conclusion of
+          Types.ECon _ _ -> []
+          _ -> [errorDiag ("the conclusion of rule " <> name <> " must be a constructor applied to its parts, like " <> name <> "(x, y)")]
+    relationPremisesOnly =
+      [ errorDiag ("rule " <> name <> " concludes a relation, so its premises must be relations too, not " <> Types.showJudgment j)
+        | concludesRelation,
+          Types.Premise _ j <- premises,
+          not (Types.isRelation j)
+      ]
     bound = exprVars conclusion
     mentioned = nub (concatMap premiseVars premises)
-    premiseVars (Types.Premise hyps (e, _)) = concatMap (exprVars . Types.hyp'var) hyps <> exprVars e
+    premiseVars (Types.Premise hyps j@(e, _)) = concatMap (exprVars . Types.hyp'var) hyps <> (if Types.isRelation j then [] else exprVars e)
     unbound =
       [ errorDiag ("premise variable " <> v <> " does not appear in the conclusion " <> show conclusion)
-        | v <- mentioned,
+        | not concludesRelation,
+          v <- mentioned,
           v `notElem` bound
       ]
-    types = conclusionType : concatMap premiseTypes premises
-    premiseTypes (Types.Premise hyps (_, t)) = t : fmap Types.hyp'type hyps
+    unknownRelations =
+      [ errorDiag ("rule " <> name <> " uses the relation " <> show t <> ", but no rule concludes a judgment of this form")
+        | Types.Premise _ j@(_, t) <- premises,
+          Types.isRelation j,
+          null (maybe [] (uncurry (relationRules ctx')) (Types.relationName t))
+      ]
+    -- Of a relation, PAL checks the arguments (its name is not a type).
+    judgmentTypes j@(_, t)
+      | Types.isRelation j = case t of
+          Types.Con _ _ args -> args
+          _ -> []
+      | otherwise = [t]
+    types = judgmentTypes conclusionJ <> concatMap premiseTypes premises
+    premiseTypes (Types.Premise hyps j) = judgmentTypes j <> fmap Types.hyp'type hyps
 
 -- | A reduction is well formed when:
 --

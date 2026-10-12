@@ -1,0 +1,34 @@
+-- Usage errors with linear types.
+
+type Bool
+type Lolli<a, b>
+type Tensor<a, b>
+
+expr True : Bool
+
+rule Lam:
+  x : lin a |- body : b
+->
+  Lam(x, body) : Lolli<a, b>
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Tensor<a, b>
+
+-- Without share, the branches split the variables: x counts twice.
+rule IfSplit:
+  c : Bool
+  t : a
+  e : a
+->
+  IfSplit(c, t, e) : a
+
+infer Lam(b, Lam(x, IfSplit(b, x, x)))
+
+-- The inner x hides the outer one, so the outer x is not used.
+infer Lam(x, Lam(x, x))
+
+-- Each linear variable is checked: y is used twice, x not at all.
+infer Lam(x, Lam(y, Pair(y, y)))

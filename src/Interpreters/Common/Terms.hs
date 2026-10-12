@@ -144,8 +144,8 @@ substPremise :: Subst -> Types.Premise -> Types.Premise
 substPremise s = mapPremise (applySubst s)
 
 mapPremise :: (Types.Type -> Types.Type) -> Types.Premise -> Types.Premise
-mapPremise f (Types.PremiseWith mode hyps (e, t)) =
-  Types.PremiseWith mode (fmap (\h -> h {Types.hyp'type = f (Types.hyp'type h)}) hyps) (e, f t)
+mapPremise f p@(Types.Premise hyps (e, t)) =
+  p {Types.premise'hypotheses = fmap (\h -> h {Types.hyp'type = f (Types.hyp'type h)}) hyps, Types.premise'judgment = (e, f t)}
 
 premiseTypeList :: Types.Premise -> [Types.Type]
 premiseTypeList (Types.Premise hyps (_, t)) = fmap Types.hyp'type hyps <> [t]
@@ -259,3 +259,15 @@ binderNames ctx = \case
     [v | i <- nub (fmap fst (binders ctx c (length ts))), Types.Var v <- [ts !! i]]
       <> concatMap (binderNames ctx) ts
   Types.Subst body x e -> exprVars x <> binderNames ctx body <> binderNames ctx e
+
+-- | The type variables of a rule: every variable in its types, except the
+--   pattern variables of its conclusion (those stand for the matched
+--   expressions).
+ruleTypeVars :: Types.TypingRule -> [String]
+ruleTypeVars (Types.TypingRule _ premises (conclExpr, conclTy)) =
+  filter (`notElem` exprVars conclExpr) (nub (concatMap freeTypeVars (conclTy : concatMap premiseTypeList premises)))
+
+-- | Apply a type substitution throughout a rule.
+renameRule :: Subst -> Types.TypingRule -> Types.TypingRule
+renameRule s rule@(Types.TypingRule _ premises (ce, ct)) =
+  rule {Types.typingRule'premises = fmap (substPremise s) premises, Types.typingRule'ruleConclusion = (ce, applySubst s ct)}

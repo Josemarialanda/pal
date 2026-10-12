@@ -33,6 +33,8 @@ data PalStmt
     STest TestSpec
   | -- | A proof search: @find T@ or @find T N@ (the depth)
     SFind Type Int
+  | -- | A relation judgment that must be derivable: @holds a <: b@
+    SHolds Type
   | -- | A type inference request: @infer e@
     SInfer Expr
   | -- | An expected type: @check e : T@

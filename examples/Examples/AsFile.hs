@@ -25,6 +25,8 @@ examples =
     fileExample "hm.pal" "Hindley–Milner with let-polymorphism (x : gen a)",
     fileExample "logic.pal" "Propositional logic via Curry–Howard: proofs as terms",
     fileExample "lambda-pi.pal" "Dependent types (λΠ): Pi, Lam, App, Vec and β-reduction",
+    fileExample "subtyping.pal" "Subtyping: a relation a <: b, with subsumption in App",
+    fileExample "linear.pal" "Linear and affine types: lin and aff hypotheses, share",
     fileExample "broken.pal" "A file with a syntax error, to show runtime parse errors"
   ]
   where

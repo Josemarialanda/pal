@@ -33,6 +33,7 @@ library
       Interpreters.Common.Reduce
       Interpreters.Common.InferMonad
       Interpreters.Common.Unify
+      Interpreters.Common.Relations
       Interpreters.Common.Inference
       Interpreters.Common.Definitions
       Interpreters.Common.Expectations
@@ -42,6 +43,7 @@ library
       Interpreters.Debug
       Interpreters.IO
       Parser.Parser
+      Parser.Data
       Parser.Quasi
       Parser.Types
   other-modules:

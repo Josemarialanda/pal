@@ -120,10 +120,38 @@ pattern ECon n ts <- Con _ n ts
 instance Show Term where
   show = \case
     Var v -> v
+    Con _ name [a, b] | isOperator name -> show a <> " " <> name <> " " <> show b
     Con _ name [] -> name
     Con Parens name ts -> name <> "(" <> intercalate ", " (fmap show ts) <> ")"
     Con Angles name ts -> name <> "<" <> intercalate ", " (fmap show ts) <> ">"
     Subst body x e -> show body <> "[" <> show x <> " := " <> show e <> "]"
+
+-- | Is this the name of an infix relation, made of symbols (like @<:@)?
+--   Such a constructor is shown between its two arguments: @a <: b@.
+isOperator :: String -> Bool
+isOperator name = not (null name) && all (`elem` operatorChars) name
+
+-- | The characters of the name of an infix relation.
+operatorChars :: String
+operatorChars = "<>:=~!&|*+-/\\^@#%?"
+
+-- | The subject of a relation judgment. A judgment of another form than
+--   @e : T@, like @Sub(a, b)@ or @a <: b@, is a pair whose subject is this
+--   placeholder and whose type is the relation term. (The parser never
+--   makes a variable named @_@.)
+relationSubject :: Expr
+relationSubject = Var "_"
+
+-- | Is a judgment a relation (see 'relationSubject')?
+isRelation :: (Expr, Type) -> Bool
+isRelation (e, _) = e == relationSubject
+
+-- | The name and number of arguments of a relation term, e.g.
+--   @("<:", 2)@ for @a <: b@.
+relationName :: Term -> Maybe (String, Int)
+relationName = \case
+  Con _ name args -> Just (name, length args)
+  _ -> Nothing
 
 --------------------------------------------------------------------------------
 
@@ -193,24 +221,38 @@ modeSymbol = \case
 --   says that @body@ has type @b@ when @x@ is assumed to have type @a@.
 --   Hypothesis expressions must be pattern variables that are bound to
 --   variables in the target expression (the binders).
-data Premise = PremiseWith
+data Premise = PremiseFull
   { premise'mode :: Mode,
     premise'hypotheses :: [Hypothesis],
-    premise'judgment :: (Expr, Type)
+    premise'judgment :: (Expr, Type),
+    -- | Whether the premise shares the variables in scope with the premises
+    --   next to it that also share (written @share@). Other premises split
+    --   them: for a linear variable (see 'Usage'), the uses in premises
+    --   that split add up; of premises that share, the largest counts.
+    premise'share :: Bool
   }
   deriving (Eq, Lift)
 
+-- | A premise that does not share (see 'premise'share').
+pattern PremiseWith :: Mode -> [Hypothesis] -> (Expr, Type) -> Premise
+pattern PremiseWith m hs j <- PremiseFull m hs j _
+  where
+    PremiseWith m hs j = PremiseFull m hs j False
+
+{-# COMPLETE PremiseWith #-}
+
 -- | A premise with a plain judgment @e : t@.
 pattern Premise :: [Hypothesis] -> (Expr, Type) -> Premise
-pattern Premise hs j <- PremiseWith _ hs j
+pattern Premise hs j <- PremiseFull _ hs j _
   where
-    Premise hs j = PremiseWith Plain hs j
+    Premise hs j = PremiseFull Plain hs j False
 
 {-# COMPLETE Premise #-}
 
 instance Show Premise where
-  show (PremiseWith m [] j) = showJudgmentWith m j
-  show (PremiseWith m hs j) = intercalate ", " (fmap show hs) <> " ⊢ " <> showJudgmentWith m j
+  show (PremiseFull m hs j s) = (if s then "share " else "") <> hypotheses <> showJudgmentWith m j
+    where
+      hypotheses = if null hs then "" else intercalate ", " (fmap show hs) <> " ⊢ "
 
 -- | A hypothesis @x : t@ that brings a variable into scope for one premise.
 --
@@ -218,15 +260,38 @@ instance Show Premise where
 --   type @t@ /generalised/ over the type variables not free in the context,
 --   so it can be used at different types (let-polymorphism). Otherwise its
 --   type is monomorphic, as a lambda’s parameter must be.
-data Hypothesis = Hypothesis
+data Hypothesis = HypothesisWith
   { hyp'var :: Expr,
     hyp'type :: Type,
-    hyp'generalize :: Bool
+    hyp'generalize :: Bool,
+    -- | How often the variable can be used (see 'Usage').
+    hyp'usage :: Usage
   }
   deriving (Eq, Lift)
 
+-- | How often a variable from a hypothesis can be used in the premise:
+--   any number of times, exactly once (@x : lin t@, linear types), or at
+--   most once (@x : aff t@, affine types).
+data Usage = Unrestricted | Linear | Affine
+  deriving (Eq, Show, Lift)
+
+-- | A hypothesis whose variable can be used any number of times.
+pattern Hypothesis :: Expr -> Type -> Bool -> Hypothesis
+pattern Hypothesis e t g <- HypothesisWith e t g _
+  where
+    Hypothesis e t g = HypothesisWith e t g Unrestricted
+
+{-# COMPLETE Hypothesis #-}
+
 instance Show Hypothesis where
-  show (Hypothesis e t g) = show e <> " : " <> (if g then "gen " else "") <> show t
+  show (HypothesisWith e t g u) = show e <> " : " <> (if g then "gen " else "") <> usageWord u <> show t
+
+-- | The keyword of a usage, with a space after it (none if unrestricted).
+usageWord :: Usage -> String
+usageWord = \case
+  Unrestricted -> ""
+  Linear -> "lin "
+  Affine -> "aff "
 
 -- | A premise without hypotheses: @premise e t@ is the judgment @e : t@.
 premise :: Expr -> Type -> Premise
@@ -254,7 +319,9 @@ showJudgment = showJudgmentWith Plain
 
 -- | A judgment with the symbol of its mode, e.g. @Lam(x, b) <= Arrow<a, b>@.
 showJudgmentWith :: Mode -> (Expr, Type) -> String
-showJudgmentWith m (e, t) = show e <> " " <> modeSymbol m <> " " <> show t
+showJudgmentWith m j@(e, t)
+  | isRelation j = show t
+  | otherwise = show e <> " " <> modeSymbol m <> " " <> show t
 
 -- | A 'TypingRule' encodes a single typing judgment in a PAL program.
 --   Each rule consists of:
@@ -445,6 +512,14 @@ ruleBinders (TypingRule _ premises (conclusion, _)) = case conclusion of
 
 --------------------------------------------------------------------------------
 
+-- | Why the uses of a linear or affine variable are wrong.
+usageMessage :: String -> Usage -> Int -> String
+usageMessage x u n = case u of
+  Linear | n == 0 -> x <> " is linear, so it must be used once, but it is not used"
+  Linear -> x <> " is linear, so it must be used once, but it is used " <> show n <> " times"
+  Affine -> x <> " is affine, so it can be used at most once, but it is used " <> show n <> " times"
+  Unrestricted -> x <> " is used " <> show n <> " times"
+
 -- | Possible error cases produced during type inference or rule checking.
 data Err
   = UnknownExpr String
@@ -461,6 +536,11 @@ data Err
   | -- | A term whose rules only check it against a known type was used
     --   where its type must be inferred.
     CannotInfer Expr
+  | -- | A relation judgment that the rules cannot derive.
+    NotDerivable Type
+  | -- | A linear or affine variable that is used too often (or, if linear,
+    --   not at all): the variable, its usage, and how often it is used.
+    UsageError String Usage Int
   | -- | A solution would use a variable outside its binder: the variable,
     --   and the solution.
     ScopeEscape String Type
@@ -477,6 +557,8 @@ instance Show Err where
     ReductionLimit t -> "[Error] " <> "Reduction limit: " <> show t <> " does not stop reducing"
     StuckSubstitution t -> "[Error] " <> "Stuck substitution: " <> show t <> " (its body is not known)"
     CannotInfer e -> "[Error] " <> "Cannot infer the type of " <> show e <> ": its rule only checks it against a known type"
+    NotDerivable j -> "[Error] " <> "Cannot derive " <> show j
+    UsageError x u n -> "[Error] " <> "Usage error: " <> usageMessage x u n
     ScopeEscape x t -> "[Error] " <> "Scope error: " <> x <> " escapes its binder in " <> show t
     CustomErr msg -> "[Error] " <> msg
 
@@ -557,6 +639,9 @@ data Expectation
   | -- | Some closed term has this type (proof search), at most the given
     --   number of rules deep: @find T N@.
     ExpectInhabited Type Int
+  | -- | A relation judgment can be derived: @holds Sub(a, b)@ or
+    --   @holds a <: b@.
+    ExpectHolds Type
   deriving (Eq, Lift)
 
 instance Show Expectation where
@@ -564,6 +649,7 @@ instance Show Expectation where
     ExpectType e t -> "check " <> show e <> " : " <> show t
     ExpectFailure e -> "fails " <> show e
     ExpectInhabited t d -> "find " <> show t <> " " <> show d
+    ExpectHolds t -> "holds " <> show t
 
 --------------------------------------------------------------------------------
 

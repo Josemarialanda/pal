@@ -1,0 +1,58 @@
+-- Linear and affine types: a variable that must be used exactly once (lin)
+-- or at most once (aff).
+--
+-- Premises split the variables in scope: for a linear variable, the uses
+-- in the premises add up, so Pair(x, x) uses x twice. Premises marked
+-- `share` (the two branches of If) use the same variables: there the
+-- larger count counts.
+
+type Bool
+type Lolli<a, b>     -- a ⊸ b: a function that uses its argument once
+type Tensor<a, b>    -- a ⊗ b: a pair whose parts are both used
+type Arrow<a, b>     -- a → b: an affine function (it may drop its argument)
+
+expr True  : Bool
+expr False : Bool
+
+rule Lam:
+  x : lin a |- body : b
+->
+  Lam(x, body) : Lolli<a, b>
+
+rule App:
+  f : Lolli<a, b>
+  x : a
+->
+  App(f, x) : b
+
+rule Pair:
+  x : a
+  y : b
+->
+  Pair(x, y) : Tensor<a, b>
+
+rule LetPair:
+  p : Tensor<a, b>
+  x : lin a, y : lin b |- body : c
+->
+  LetPair(p, x, y, body) : c
+
+rule If:
+  c : Bool
+  share t : a
+  share e : a
+->
+  If(c, t, e) : a
+
+rule ALam:
+  x : aff a |- body : b
+->
+  ALam(x, body) : Arrow<a, b>
+
+check Lam(x, x) : Lolli<a, a>
+check Lam(p, LetPair(p, x, y, Pair(y, x))) : Lolli<Tensor<a, b>, Tensor<b, a>>   -- swap
+check Lam(b, Lam(x, If(b, x, x))) : Lolli<Bool, Lolli<a, a>>                      -- x once in each branch
+fails Lam(x, Pair(x, x))       -- x is used twice
+fails Lam(x, True)             -- x is not used
+check ALam(x, True) : Arrow<a, Bool>                                              -- affine: may drop x
+fails ALam(x, Pair(x, x))      -- but not use it twice

@@ -35,6 +35,7 @@ import Interpreters.Common.Actions
     applySubst,
     binders,
     checkDetailed,
+    deriveRelation,
     freshen,
     getsI,
     initialState,
@@ -130,7 +131,8 @@ search ctx synthOnly scope goal depth st steps k
     -- Introductions first, then eliminations without hypotheses (like
     -- Fst), then the others (like Case, which splits the search).
     ordered =
-      let rs = reverse (Types.ctx'rules ctx)
+      -- Rules for relations do not give terms.
+      let rs = [r | r <- reverse (Types.ctx'rules ctx), not (Types.isRelation (Types.typingRule'ruleConclusion r))]
        in filter (not . isJust . majorPremise) rs <> filter simpleElimination rs <> filter (\r -> isJust (majorPremise r) && not (simpleElimination r)) rs
     simpleElimination r = isJust (majorPremise r) && null [() | Types.Premise (_ : _) _ <- Types.typingRule'premises r]
 
@@ -161,6 +163,11 @@ applyRule ctx scope goal depth rule st k steps =
     premisesThen _ [] patternVars pat st' left
       | all (solved st') patternVars = k (applySubst (inferSubst st') pat) st' left
       | otherwise = Left left
+    -- A relation premise is derived with the rules of its relation.
+    premisesThen i (Types.PremiseWith _ _ j@(_, ty) : rest) patternVars pat st' left
+      | Types.isRelation j = case runInfer (deriveRelation ctx ty) st' of
+          (st'', Right _) -> premisesThen (i + 1) rest patternVars pat st'' left
+          _ -> Left left
     premisesThen i (Types.PremiseWith _ hyps (subject, ty) : rest) patternVars pat st' left =
       let scope' = [(v, t) | Types.Hypothesis (Types.Var v) t _ <- hyps] <> scope
        in case applySubst (inferSubst st') subject of

@@ -15,6 +15,7 @@
 -- * "Interpreters.Common.Reduce" — reductions (definitional equality);
 -- * "Interpreters.Common.InferMonad" — the state and monad of inference;
 -- * "Interpreters.Common.Unify" — unification;
+-- * "Interpreters.Common.Relations" — judgments of other forms (relations);
 -- * "Interpreters.Common.Inference" — inference and checking with the rules;
 -- * "Interpreters.Common.Definitions" — definitions and their checks.
 module Interpreters.Common.Actions
@@ -22,6 +23,7 @@ module Interpreters.Common.Actions
     module Interpreters.Common.Reduce,
     module Interpreters.Common.InferMonad,
     module Interpreters.Common.Unify,
+    module Interpreters.Common.Relations,
     module Interpreters.Common.Inference,
     module Interpreters.Common.Definitions,
   )
@@ -31,5 +33,6 @@ import Interpreters.Common.Definitions
 import Interpreters.Common.InferMonad
 import Interpreters.Common.Inference
 import Interpreters.Common.Reduce
+import Interpreters.Common.Relations
 import Interpreters.Common.Terms
 import Interpreters.Common.Unify

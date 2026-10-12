@@ -1,0 +1,35 @@
+-- Data declarations: each one stands for a type, its constructors, a
+-- recursor (case analysis and structural recursion), reductions and values.
+
+type Arrow<a, b>
+
+data Nat = Zero | Succ(Nat)
+data Bool = True | False
+data List<a> = Nil | Cons(a, List<a>)
+
+rule Lam:
+  x : a |- body : b
+->
+  Lam(x, body) : Arrow<a, b>
+
+rule App:
+  f : Arrow<a, b>
+  x : a
+->
+  App(f, x) : b
+
+reduce Beta: App(Lam(x, body), a) ~> body[x := a]
+value Lam(x, body)
+
+-- double(n) = RecNat(n, Zero, m, r, Succ(Succ(r)))
+check RecNat(Succ(Zero), Zero, m, r, Succ(Succ(r))) : Nat
+check Lam(n, RecNat(n, Zero, m, r, Succ(Succ(r)))) : Arrow<Nat, Nat>
+-- length
+check Lam(l, RecList(l, Zero, h, t, r, Succ(r))) : Arrow<List<a>, Nat>
+check Cons(True, Cons(False, Nil)) : List<Bool>
+fails Cons(True, Cons(Zero, Nil))
+check RecBool(True, Zero, Succ(Zero)) : Nat
+def IsZero(n) := RecNat(n, True, m, r, False)
+check IsZero(Succ(Zero)) : Bool
+test preservation
+test progress

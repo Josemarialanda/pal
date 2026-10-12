@@ -1,0 +1,4 @@
+-- A data declaration with an undeclared field type: the rules that need
+-- the field are rejected, and then the definitions that need those rules.
+
+data Tree = Leaf | Node(Tree, Thing, Tree)

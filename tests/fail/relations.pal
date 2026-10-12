@@ -1,0 +1,44 @@
+-- Errors with relations (judgments of other forms than e : T).
+
+type Top
+type Nat
+type Bool
+type Arrow<a, b>
+expr Zero : Nat
+expr True : Bool
+expr Not  : Arrow<Bool, Bool>
+
+rule SubRefl:
+->
+  a <: a
+
+rule SubTop:
+->
+  a <: Top
+
+rule App:
+  f : Arrow<a, b>
+  x : c
+  c <: a
+->
+  App(f, x) : b
+
+-- An argument whose type is not a subtype of the parameter's type.
+infer App(Not, Zero)
+holds Top <: Nat
+fails Nat <: Top
+
+-- Malformed rules: an unknown relation, and a typing premise in a rule
+-- for a relation.
+rule Uses:
+  f : Arrow<a, b>
+  a == b
+->
+  Uses(f) : a
+
+rule Mixed:
+  x : a
+->
+  a <: Top
+
+holds Nat ~~ Top

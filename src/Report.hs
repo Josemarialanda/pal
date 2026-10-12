@@ -75,7 +75,10 @@ import Types
     TestSpec (..),
     TypeDecl (..),
     TypingRule (..),
+    isOperator,
+    isRelation,
     propertyName,
+    relationSubject,
     pattern EVar,
   )
 
@@ -186,8 +189,9 @@ reportOutcome r located action = \case
             <> concatMap (\g -> ("    and: " <> errLine (failure'err g)) : fmap ("  " <>) (reportFailure r located g)) rest
       (ExpectFailure e, Left (f :| _)) ->
         [mark True <> " " <> failsText e <> note st ("  (" <> errText (failure'err f) <> ")")]
-      (ExpectFailure e, Right d) ->
-        (mark False <> " " <> failsText e <> dash <> "but " <> prettyExpr st e <> punct " :: " <> prettyType st (deriv'type d)) : located'
+      (ExpectFailure e, Right d)
+        | isRelation (deriv'expr d, deriv'type d) -> (mark False <> " " <> failsText e <> dash <> "but the rules derive it") : derivation d ++ located'
+        | otherwise -> (mark False <> " " <> failsText e <> dash <> "but " <> prettyExpr st e <> punct " :: " <> prettyType st (deriv'type d)) : located'
       (ExpectInhabited t _, _)
         | not (null [() | Diagnostic SevError _ <- diagnostics]) ->
             (mark False <> " " <> findText t <> dash <> intercalate "; " [m | Diagnostic SevError m <- diagnostics]) : located'
@@ -195,6 +199,12 @@ reportOutcome r located action = \case
         (mark True <> " " <> findText t <> dash <> prettyExpr st (deriv'expr d)) : derivation d
       (ExpectInhabited t _, Left (f :| _)) ->
         (mark False <> " " <> findText t <> dash <> errText (failure'err f)) : located'
+      (ExpectHolds j, _)
+        | not (null [() | Diagnostic SevError _ <- diagnostics]) ->
+            (mark False <> " " <> holdsText j <> dash <> intercalate "; " [m | Diagnostic SevError m <- diagnostics]) : located'
+      (ExpectHolds j, Right d) -> mark True <> " " <> holdsText j : derivation d
+      (ExpectHolds j, Left (f :| _)) ->
+        (mark False <> " " <> holdsText j <> dash <> errText (failure'err f)) : located'
 
     tested (TestResult spec checked counterexample) = case counterexample of
       Nothing
@@ -214,6 +224,7 @@ reportOutcome r located action = \case
     checkText e t = keyword "check" <> " " <> prettyExpr st e <> punct " : " <> prettyType st t
     failsText e = keyword "fails" <> " " <> prettyExpr st e
     findText t = keyword "find" <> " " <> prettyType st t
+    holdsText j = keyword "holds" <> " " <> prettyType st j
     errText err = let s = show err in fromMaybe s (dropPrefix "[Error] " s)
     -- An error on its own line: without the "[Error] " prefix when plain.
     errLine err = if styleEnabled st then prettyErr st err else errText err
@@ -251,9 +262,7 @@ reportFailure r located (Failure _ path frames) =
         <> paint st [Italic, Yellow] rule
         <> note st ", premise "
         <> prettyPremise st premise
-        <> note st "  (checking "
-        <> prettyExpr st subject
-        <> note st ")"
+        <> (if subject == relationSubject then "" else note st "  (checking " <> prettyExpr st subject <> note st ")")
 
 -- | Where a statement starts, for definitions (which have no expression).
 statementLocation :: Report -> Maybe (Located PalAction) -> [String]
@@ -411,7 +420,7 @@ derivationLatexDocument d =
 
 judgmentLatex :: Derivation -> String
 judgmentLatex (Derivation e t _ assumptions _) =
-  hypotheses <> termLatex e <> " : " <> termLatex t
+  hypotheses <> (if isRelation (e, t) then termLatex t else termLatex e <> " : " <> termLatex t)
   where
     hypotheses
       | null assumptions = ""
@@ -423,6 +432,7 @@ judgmentLatex (Derivation e t _ assumptions _) =
 termLatex :: Term -> String
 termLatex = \case
   Var v -> ident v
+  Con _ n [a, b] | isOperator n -> termLatex a <> " " <> latexOperator n <> " " <> termLatex b
   Con _ n [] -> latexName n
   Con Parens n ts -> latexName n <> "(" <> intercalate ", " (fmap termLatex ts) <> ")"
   Con Angles n ts -> latexName n <> "\\langle " <> intercalate ", " (fmap termLatex ts) <> "\\rangle"
@@ -439,3 +449,16 @@ latexName n = "\\mathsf{" <> escape n <> "}"
 
 escape :: String -> String
 escape = concatMap $ \c -> if isAlphaNum c then [c] else if c == '_' then "\\_" else [c]
+
+-- | The operator of an infix relation, as a LaTeX relation symbol.
+latexOperator :: String -> String
+latexOperator op = "\\mathrel{" <> concatMap symbol op <> "}"
+  where
+    symbol = \case
+      '&' -> "\\&"
+      '#' -> "\\#"
+      '%' -> "\\%"
+      '^' -> "\\hat{}"
+      '~' -> "\\sim "
+      '\\' -> "\\backslash "
+      c -> [c]

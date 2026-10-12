@@ -16,11 +16,14 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe)
 import Interpreters.Common.Actions
   ( checkDetailed,
+    deriveRelation,
     equivalent,
     errorDiag,
     hasErrors,
     inferDetailed,
     normalForm,
+    relationRules,
+    runDetailed,
     validateType,
   )
 import Interpreters.Common.Search (findTerm, notFoundMessage)
@@ -53,9 +56,19 @@ checkExpectation ctx = \case
           | needsChecking = isRight result
           | otherwise = either (const False) (equivalent ctx t . Types.deriv'type) result
      in (diagnostics, result, met)
-  Types.ExpectFailure e ->
-    let result = inferDetailed ctx e
-     in ([], result, isLeft result)
+  -- For a relation (like @fails Sub(Bool, Nat)@), the judgment must not be
+  -- derivable; for an expression, it must not have a type.
+  Types.ExpectFailure e
+    | isRelationTerm e ->
+        let result = derive e
+         in ([], result, isLeft result)
+    | otherwise ->
+        let result = inferDetailed ctx e
+         in ([], result, isLeft result)
+  Types.ExpectHolds j ->
+    let diagnostics = [errorDiag ("unknown relation " <> show j <> ": no rule concludes a judgment of this form") | not (isRelationTerm j)]
+        result = derive j
+     in (diagnostics, result, not (hasErrors diagnostics) && isRight result)
   Types.ExpectInhabited t depth ->
     let diagnostics = validateType ctx t
      in case findTerm ctx depth t of
@@ -64,6 +77,9 @@ checkExpectation ctx = \case
             let notFound = Types.CustomErr (notFoundMessage why)
              in (diagnostics, Left (pure (Types.Failure notFound [] [])), False)
   where
+    -- A term whose head is a relation of the context.
+    isRelationTerm t = maybe False (not . null . uncurry (relationRules ctx)) (Types.relationName t)
+    derive j = runDetailed ctx ((Types.relationSubject,) <$> deriveRelation ctx j)
     isCannotInfer = \case
       Types.CannotInfer _ -> True
       _ -> False

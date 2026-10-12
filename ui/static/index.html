@@ -226,6 +226,7 @@ try { applyTheme(localStorage.getItem("pal.theme") || ""); } catch {}
   <h3>Statements</h3>
   <pre data-pal>type Bool              -- declare a type
 type Arrow&lt;a, b&gt;       -- a type with parameters
+data List&lt;a&gt; = Nil | Cons(a, List&lt;a&gt;)  -- an inductive type, with RecList
 expr True : Bool       -- axiom: a constant and its type
 rule Not:              -- an inference rule
   x : Bool             --   premises, one per line
@@ -264,6 +265,8 @@ test progress 2000     -- a term that does not reduce is a value</pre>
 x : A |- body : B      -- check body with x : A in scope
 x : A, y : B |- e : C  -- several hypotheses
 x : gen A |- body : B  -- x is polymorphic in body
+x : lin A |- body : B  -- body uses x exactly once (aff: at most once)
+share t : A            -- shares the variables in scope (e.g. If branches)
 x => T                 -- infer the type of x
 x <= T                 -- check x against T</pre>
   <p><code>⊢</code> works in place of <code>|-</code>. A rule with a <code>&lt;=</code> conclusion, like <code>Lam(x, b) &lt;= Arrow&lt;a, b&gt;</code>, is used only when the expected type is known.</p>
@@ -346,7 +349,7 @@ let latexById = [];     // LaTeX of each rendered derivation, for "Copy LaTeX"
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const span = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
-const KEYWORDS = new Set(["type", "expr", "rule", "reduce", "def", "value", "infer", "check", "fails", "find", "test", "preservation", "progress", "gen"]);
+const KEYWORDS = new Set(["type", "data", "expr", "rule", "reduce", "def", "value", "infer", "check", "fails", "find", "holds", "test", "preservation", "progress", "gen", "lin", "aff", "share"]);
 
 // Highlight PAL source. Type positions (after ':' up to the end of the judgment)
 // use type colours; everything else uses expression colours. Tokens inside a
@@ -356,18 +359,25 @@ function highlightSource(text, ranges = []) {
   return text.split("\n").map((line, i) => {
     // The ':' after `reduce Name` starts expressions, not a type.
     let out = "", inType = false, depth = 0, inReduce = false;
-    const re = /(--.*$)|([A-Za-z][A-Za-z0-9_]*)|(\|-|⊢|->|~>)|(:=|=>|<=|[:,()<>[\]])|(\s+)|(.)/g;
+    const re = /(--.*$)|([A-Za-z][A-Za-z0-9_]*)|(\|-|⊢|->|~>)|(:=|=>|<=)|([<>:=~!&|*+\-\/\\^@#%?]{2,})|([:,()<>[\]])|(\s+)|(.)/g;
     const marked = (from, to) => ranges.some(([s, e]) => from < e && to > s);
     let m;
     while ((m = re.exec(line)) !== null) {
-      const [tok, comment, ident, arrow, punct] = m;
+      const [tok, comment, ident, arrow, special, operator, single] = m;
+      const punct = special || single;
       let html;
       if (comment) html = span("comment", tok);
       else if (ident) {
-        if (KEYWORDS.has(ident) && (ident !== "gen" || inType)) { html = span("kw", tok); if (ident === "reduce") inReduce = true; if (ident === "find") inType = true; }
+        if (KEYWORDS.has(ident) && (!["gen", "lin", "aff"].includes(ident) || inType)) { html = span("kw", tok); if (ident === "reduce") inReduce = true; if (ident === "find") inType = true; }
         else if (inType) html = span(/^[a-z]/.test(ident) ? "tyvar" : "tycon", tok);
         else html = span(/^[a-z]/.test(ident) ? "var" : "con", tok);
       } else if (arrow) { html = span("kw", tok); inType = false; }
+      // A relation operator, like <: (a run of < or > is only brackets).
+      else if (operator && !/^[<>]+$/.test(operator)) { html = span("kw", tok); inType = true; }
+      else if (operator) {
+        html = span("punct", tok);
+        for (const c of tok) depth = c === "<" ? depth + 1 : Math.max(0, depth - 1);
+      }
       else if (punct) {
         html = span("punct", tok);
         if (tok === ":" && inReduce) inReduce = false;
@@ -394,7 +404,7 @@ function highlightTerm(text, isType) {
 }
 const ty = (t) => highlightTerm(t, true);
 const ex = (e) => highlightTerm(e, false);
-const judgment = (j) => `${ex(j.expr)}<span class="sep">${esc(j.mode || ":")}</span>${ty(j.type)}`;
+const judgment = (j) => j.relation !== undefined ? ty(j.relation) : `${ex(j.expr)}<span class="sep">${esc(j.mode || ":")}</span>${ty(j.type)}`;
 
 // Highlight the types inside an error message.
 function highlightError(msg) {
@@ -405,6 +415,7 @@ function highlightError(msg) {
   if ((m = /^(No typing rule matched for → )(.+)$/.exec(msg))) return esc(m[1]) + ex(m[2]);
   if ((m = /^(Stuck substitution: )(.+)( \(its body is not known\))$/.exec(msg))) return esc(m[1]) + ty(m[2]) + esc(m[3]);
   if ((m = /^(Reduction limit: )(.+)( does not stop reducing)$/.exec(msg))) return esc(m[1]) + ex(m[2]) + esc(m[3]);
+  if ((m = /^(Cannot derive )(.+)$/.exec(msg))) return esc(m[1]) + ty(m[2]);
   if ((m = /^(Scope error: )(.+)( escapes its binder in )(.+)$/.exec(msg))) return esc(m[1]) + span("var", m[2]) + esc(m[3]) + ty(m[4]);
   return esc(msg);
 }
@@ -539,7 +550,7 @@ function render(data) {
     (bad ? ` <span class="sep">·</span><span style="color:var(--err)">${bad} ✗</span>` : "");
 }
 
-const isResult = (item) => item.kind === "infer" || item.kind === "check" || item.kind === "fails" || item.kind === "test" || item.kind === "find";
+const isResult = (item) => item.kind === "infer" || item.kind === "check" || item.kind === "fails" || item.kind === "test" || item.kind === "find" || item.kind === "holds";
 const failed = (item) => item.rejected || (isResult(item) && !item.ok);
 
 function renderItem(item) {
@@ -571,6 +582,12 @@ function renderItem(item) {
         : item.errors ? errorsHtml(item.errors)
         : `<div class="errors"><div class="err-text">inferred ${ty(item.type)}</div></div>`;
       return `<div class="item bad"><span class="mark">✗</span>${head}${reason}</div>`;
+    }
+    case "holds": {
+      const head = `${span("kw", "holds")} ${ty(item.expected)}`;
+      if (item.ok) return `<div class="item ok"><span class="mark">✓</span>${head}${derivationHtml(item)}</div>`;
+      const reasons = item.diagnostics.length ? item.diagnostics.map((d) => d.message).join("; ") : item.error;
+      return `<div class="item bad" data-jump="${item.start}" title="Click to jump to it"><span class="mark">✗</span>${head}<div class="errors"><div class="err-text">${highlightError(reasons)}</div></div></div>`;
     }
     case "find": {
       const head = `${span("kw", "find")} ${ty(item.expected)}`;
@@ -609,7 +626,7 @@ function renderItem(item) {
 function errorsHtml(errors) {
   return `<div class="errors">${errors.map((e) => {
     const context = e.context.map((c) =>
-      `<div class="context">in rule <span class="rname">${esc(c.rule)}</span>, premise ${highlightLine(c.premise)} <span class="punct">(checking </span>${ex(c.subject)}<span class="punct">)</span></div>`).join("");
+      `<div class="context">in rule <span class="rname">${esc(c.rule)}</span>, premise ${highlightLine(c.premise)} ${c.subject === "_" ? "" : `<span class="punct">(checking </span>${ex(c.subject)}<span class="punct">)</span>`}</div>`).join("");
     const jump = e.start !== undefined ? ` data-jump="${e.start}" data-end="${e.end}" title="Click to jump to it"` : "";
     return `<div class="error"${jump}><div class="err-text">${highlightError(e.message)}</div>${context}</div>`;
   }).join("")}</div>`;
@@ -647,10 +664,9 @@ function scheme(text) {
 }
 
 function renderRule(rule) {
+  const hypothesis = (h) => `${ex(h.expr)}<span class="sep">:</span>${h.gen ? span("kw", "gen") + " " : ""}${h.usage ? span("kw", h.usage) + " " : ""}${ty(h.type)}`;
   const premise = (p) =>
-    p.hypotheses.length === 0
-      ? `<span>${judgment(p.judgment)}</span>`
-      : `<span>${p.hypotheses.map((h) => `${ex(h.expr)}<span class="sep">:</span>${h.gen ? span("kw", "gen") + " " : ""}${ty(h.type)}`).join(span("punct", ", "))}<span class="turnstile">⊢</span>${judgment(p.judgment)}</span>`;
+    `<span>${p.share ? span("kw", "share") + " " : ""}${p.hypotheses.length === 0 ? "" : p.hypotheses.map(hypothesis).join(span("punct", ", ")) + `<span class="turnstile">⊢</span>`}${judgment(p.judgment)}</span>`;
   return `<div class="rule">
       <div class="premises">${rule.premises.map(premise).join("") || "&nbsp;"}</div><div></div>
       <div class="bar"></div><div class="name">${esc(rule.name)}</div>
