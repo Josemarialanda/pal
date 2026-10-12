@@ -28,6 +28,7 @@ nix develop                              # or let direnv load the shell
 pal                                      # interactive REPL
 pal FILE.pal                             # typecheck a file
 pal --derivations FILE.pal               # … and draw each derivation tree
+pal --latex FILE.pal > system.tex        # the whole system as inference rules (LaTeX)
 pal -i examples/programs/stlc.pal        # REPL with a file preloaded
 pal-ui                                   # web UI, opens in your browser
 run-examples                             # run every bundled example
@@ -244,6 +245,15 @@ rule App:
 
 `:latex` (and the web UI's *Copy LaTeX*) gives the same tree as a [`mathpartir`](https://ctan.org/pkg/mathpartir) document.
 
+**The system as LaTeX.** `pal --latex FILE.pal` prints all the definitions of the file as one LaTeX document, for teaching and papers. The REPL's `:latex` (with no expression) and the *Copy LaTeX* button over the web UI's results do the same. The document has these sections, each in the order of definition:
+
+- **Types**: the declared types.
+- **Typing rules**: each axiom and rule as an inference rule, with an explicit context `Γ ⊢`, and a rule `Var` for variables if a rule has hypotheses. `=>` and `<=` become `⇒` and `⇐`, and `gen`, `lin`, `aff` and `share` stay as words.
+- **Relations**: the rules of judgments such as `a <: b`, without `Γ`.
+- **Reductions** (`lhs ⟶ rhs`) and **Values** (`v ::= …`).
+
+Definitions that PAL rejects are not in the document; the results go to stderr, and the exit code is 1. A `data` declaration shows as the rules that it stands for. The document needs the packages `mathpartir` and `mathtools`.
+
 ## The REPL
 
 ```text
@@ -266,13 +276,14 @@ pal❯ Not(True)
 | Command         | Effect                          |
 | --------------- | ------------------------------- |
 | `:derive EXPR`  | Draw the derivation tree of `EXPR` |
+| `:latex`        | The whole system as a LaTeX document |
 | `:latex EXPR`   | The same, as a LaTeX document   |
 | `:load FILE...` | Run files in the current context |
 | `:ctx`          | Show the context                |
 | `:reset`        | Clear the context               |
 | `:help` `:quit` | Help / exit (also Ctrl-D)       |
 
-`pal` flags: `-i FILE...` runs files and then opens a REPL with their context, `--derivations` draws the derivation tree under each result, and `--no-color` turns off colour (as do `NO_COLOR` and piped output).
+`pal` flags: `-i FILE...` runs files and then opens a REPL with their context, `--derivations` draws the derivation tree under each result, `--latex` prints the whole system as LaTeX, and `--no-color` turns off colour (as do `NO_COLOR` and piped output).
 
 ## The web UI
 
@@ -281,6 +292,7 @@ pal❯ Not(True)
 - The editor highlights PAL syntax. Syntax errors are marked on their line, the part of an expression at fault is underlined, and clicking an error jumps to it.
 - Results are highlighted like the REPL's, rules are drawn as inference rules, and rejected definitions and unmet `check` / `fails` are flagged.
 - Open **derivation** under a result to see its derivation tree, or copy it as LaTeX.
+- **Copy LaTeX** over the results copies the whole system as a LaTeX document.
 - Your program is saved in the browser between visits.
 - The **Examples** menu loads any program from [`examples/programs/`](examples/programs/).
 - **Share** copies a link that opens your program. The program is in the link itself (after `#`), so the server never sees it.

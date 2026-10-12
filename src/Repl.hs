@@ -54,7 +54,7 @@ import Pretty
     success,
   )
 import Program (Outcome (..), PalAction (..), Step (..), fromStmt, loadPalFileLocated, runSteps)
-import Report (Report (..), Source (..), defaultReport, derivationLatexDocument, prettyDerivation, reportStep)
+import Report (Report (..), Source (..), defaultReport, derivationLatexDocument, prettyDerivation, reportStep, systemLatexDocument)
 import System.Console.Haskeline
   ( InputT,
     Settings (..),
@@ -241,6 +241,7 @@ command env ctx line = case (name, words rest) of
   ("reset", []) -> Just mempty <$ putStrLn (note st "context cleared")
   ("load", files@(_ : _)) -> Just <$> loadFiles env ctx files
   ("derive", _ : _) -> Just ctx <$ derive False
+  ("latex", []) -> Just ctx <$ putStr (systemLatexDocument ctx)
   ("latex", _ : _) -> Just ctx <$ derive True
   _ -> Just ctx <$ putStrLn (failure st "unknown command; type :help for a list")
   where
@@ -282,6 +283,7 @@ helpText st =
       "",
       heading "Commands:",
       "  " <> cmd ":derive EXPR" <> "    draw the derivation tree of EXPR",
+      "  " <> cmd ":latex" <> "          the whole system (all rules) as a LaTeX document",
       "  " <> cmd ":latex EXPR" <> "     the derivation of EXPR as a LaTeX document",
       "  " <> cmd ":load FILE..." <> "   run .pal files in the current context",
       "  " <> cmd ":ctx" <> "            show the current context",

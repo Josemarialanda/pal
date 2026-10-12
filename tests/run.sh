@@ -10,6 +10,8 @@
 #   tests/pass/*.pal          must succeed: every definition accepted, every
 #                             infer typechecks, every check and fails met
 #   examples/programs/*.pal   likewise (except broken.pal, a parse error on purpose)
+#   tests/latex/*.pal         must succeed, and pal --latex must print exactly
+#                             the matching .tex file
 #   tests/fail/*.pal          must fail, with exactly the output in the
 #                             matching .out file (messages, locations, context)
 set -uo pipefail
@@ -46,6 +48,23 @@ for f in tests/fail/*.pal; do
     ok "$f"
   else
     bad "$f (output differs from $expected)"
+    diff -u "$expected" <(printf '%s\n' "$out") | sed 's/^/    /'
+  fi
+done
+
+for f in tests/latex/*.pal; do
+  expected="${f%.pal}.tex"
+  if ! out=$("$pal" --latex "$f" 2> /dev/null); then
+    bad "$f (expected success)"
+    continue
+  fi
+  if $accept; then
+    printf '%s\n' "$out" > "$expected"
+    ok "$f (accepted)"
+  elif diff -u "$expected" <(printf '%s\n' "$out") > /dev/null 2>&1; then
+    ok "$f"
+  else
+    bad "$f (LaTeX differs from $expected)"
     diff -u "$expected" <(printf '%s\n' "$out") | sed 's/^/    /'
   fi
 done

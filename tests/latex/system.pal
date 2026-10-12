@@ -1,0 +1,61 @@
+-- The whole system as LaTeX (pal --latex): one of each kind of definition.
+
+type Bool
+type Arrow<a, b>
+data Nat = Zero | Succ(Nat)
+
+expr True : Bool
+expr False : Bool
+
+rule SubRefl:
+->
+  a <: a
+
+rule SubArrow:
+  a2 <: a1
+  b1 <: b2
+->
+  Arrow<a1, b1> <: Arrow<a2, b2>
+
+rule LeZero:
+->
+  Le(Zero, n)
+
+rule Ann:
+  e <= t
+->
+  Ann(e, t) => t
+
+rule Lam:
+  x : a |- body <= b
+->
+  Lam(x, body) <= Arrow<a, b>
+
+rule App:
+  f => Arrow<a, b>
+  x <= a
+  c <: a
+->
+  App(f, x) => b
+
+rule Let:
+  e : a
+  x : gen a |- body : b
+->
+  Let(x, e, body) : b
+
+rule Use_Once:
+  x : lin a, y : aff Bool |- body : b
+->
+  Use_Once(x, y, body) : b
+
+rule If:
+  c : Bool
+  share t : a
+  share e : a
+->
+  If(c, t, e) : a
+
+reduce Beta: App(Lam(x, body), a) ~> body[x := a]
+
+value Lam(x, body)

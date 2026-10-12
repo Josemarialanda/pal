@@ -1,0 +1,58 @@
+\documentclass{article}
+\usepackage{mathpartir}
+\usepackage{mathtools}
+% Use the full page width: mathpartir puts premises side by side only
+% while they fit, and wraps them onto separate lines otherwise.
+\setlength{\textwidth}{\paperwidth}
+\addtolength{\textwidth}{-2cm}
+\setlength{\oddsidemargin}{-1in}
+\addtolength{\oddsidemargin}{1cm}
+\pagestyle{empty}
+\begin{document}
+\section*{Types}
+\[ \mathsf{Bool},\quad \mathsf{Arrow}\langle a, b\rangle,\quad \mathsf{Nat} \]
+\section*{Typing rules}
+\begin{mathpar}
+\inferrule*[right=Zero]{\ }{\Gamma \vdash \mathsf{Zero} : \mathsf{Nat}}
+\and
+\inferrule*[right=True]{\ }{\Gamma \vdash \mathsf{True} : \mathsf{Bool}}
+\and
+\inferrule*[right=False]{\ }{\Gamma \vdash \mathsf{False} : \mathsf{Bool}}
+\and
+\inferrule*[right=Var]{x : \forall \vec{a}.\, T \in \Gamma}{\Gamma \vdash x : T[\vec{a} \coloneqq \vec{\tau}]}
+\and
+\inferrule*[right=Succ]{\Gamma \vdash \mathit{succ\_1} : \mathsf{Nat}}{\Gamma \vdash \mathsf{Succ}(\mathit{succ\_1}) : \mathsf{Nat}}
+\and
+\inferrule*[right=RecNat]{\Gamma \vdash s : \mathsf{Nat} \\ \Gamma \vdash \mathit{zero} : r \\ \Gamma, \mathit{succ\_1} : \mathsf{Nat}, \mathit{succ\_rec1} : r \vdash \mathit{succ} : r}{\Gamma \vdash \mathsf{RecNat}(s, \mathit{zero}, \mathit{succ\_1}, \mathit{succ\_rec1}, \mathit{succ}) : r}
+\and
+\inferrule*[right=Ann]{\Gamma \vdash e \Leftarrow t}{\Gamma \vdash \mathsf{Ann}(e, t) \Rightarrow t}
+\and
+\inferrule*[right=Lam]{\Gamma, x : a \vdash \mathit{body} \Leftarrow b}{\Gamma \vdash \mathsf{Lam}(x, \mathit{body}) \Leftarrow \mathsf{Arrow}\langle a, b\rangle}
+\and
+\inferrule*[right=App]{\Gamma \vdash f \Rightarrow \mathsf{Arrow}\langle a, b\rangle \\ \Gamma \vdash x \Leftarrow a \\ c \mathrel{<:} a}{\Gamma \vdash \mathsf{App}(f, x) \Rightarrow b}
+\and
+\inferrule*[right=Let]{\Gamma \vdash e : a \\ \Gamma, x : \mathsf{gen}\ a \vdash \mathit{body} : b}{\Gamma \vdash \mathsf{Let}(x, e, \mathit{body}) : b}
+\and
+\inferrule*[right=Use\_Once]{\Gamma, x : \mathsf{lin}\ a, y : \mathsf{aff}\ \mathsf{Bool} \vdash \mathit{body} : b}{\Gamma \vdash \mathsf{Use\_Once}(x, y, \mathit{body}) : b}
+\and
+\inferrule*[right=If]{\Gamma \vdash c : \mathsf{Bool} \\ \mathsf{share}\; \Gamma \vdash t : a \\ \mathsf{share}\; \Gamma \vdash e : a}{\Gamma \vdash \mathsf{If}(c, t, e) : a}
+\end{mathpar}
+\section*{Relations}
+\begin{mathpar}
+\inferrule*[right=SubRefl]{\ }{a \mathrel{<:} a}
+\and
+\inferrule*[right=SubArrow]{a_{2} \mathrel{<:} a_{1} \\ b_{1} \mathrel{<:} b_{2}}{\mathsf{Arrow}\langle a_{1}, b_{1}\rangle \mathrel{<:} \mathsf{Arrow}\langle a_{2}, b_{2}\rangle}
+\and
+\inferrule*[right=LeZero]{\ }{\mathsf{Le}(\mathsf{Zero}, n)}
+\end{mathpar}
+\section*{Reductions}
+\begin{mathpar}
+(\textsc{RecNatZero})\quad \mathsf{RecNat}(\mathsf{Zero}, \mathit{zero}, \mathit{succ\_1}, \mathit{succ\_rec1}, \mathit{succ}) \longrightarrow \mathit{zero}
+\and
+(\textsc{RecNatSucc})\quad \mathsf{RecNat}(\mathsf{Succ}(v_{1}), \mathit{zero}, \mathit{succ\_1}, \mathit{succ\_rec1}, \mathit{succ}) \longrightarrow \mathit{succ}[\mathit{succ\_1} \coloneqq v_{1}][\mathit{succ\_rec1} \coloneqq \mathsf{RecNat}(v_{1}, \mathit{zero}, \mathit{succ\_1}, \mathit{succ\_rec1}, \mathit{succ})]
+\and
+(\textsc{Beta})\quad \mathsf{App}(\mathsf{Lam}(x, \mathit{body}), a) \longrightarrow \mathit{body}[x \coloneqq a]
+\end{mathpar}
+\section*{Values}
+\[ v \Coloneqq \mathsf{Zero} \mid \mathsf{Succ}(v_{1}) \mid \mathsf{Lam}(x, \mathit{body}) \]
+\end{document}

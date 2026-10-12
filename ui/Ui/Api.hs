@@ -21,7 +21,7 @@ import Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import Parser.Parser (palProgramLocated)
 import Parser.Types (Located (..), Span (..), spanAt)
 import Program (Outcome (..), PalAction (..), Step (..), fromStmt, runStepsWith)
-import Report (derivationLatex)
+import Report (derivationLatex, systemLatexDocument)
 import Text.Megaparsec (ParseErrorBundle (..), errorBundlePretty, errorOffset, parse, parseErrorTextPretty)
 import Types
   ( Counterexample (..),
@@ -130,6 +130,9 @@ text status msg = utf8 msg (Response status "text/plain; charset=utf-8" [] "")
 -- > {"ok": true,  "items": [{"kind": "type" | "expr" | "rule" | "reduce" | "def" | "value" | "infer" | "check" | "fails" | "find" | "test", …}, …]}
 -- > {"ok": false, "error": {"line": 3, "column": 5, "message": "…", "pretty": "…"}}
 --
+-- @system@ is the whole system (the definitions that PAL accepted) as a
+-- LaTeX document.
+--
 -- Every item has @start@, the offset of its statement in the source.
 --
 -- With @withTests@ unset, a @test@ item has @notRun@ instead of a result.
@@ -141,8 +144,8 @@ runSource :: Bool -> String -> Json
 runSource withTests src = case parse palProgramLocated "input" src of
   Left bundle -> object [("ok", JBool False), ("error", parseError bundle)]
   Right stmts ->
-    let (_, steps) = runStepsWith withTests mempty (fmap (fmap fromStmt) stmts)
-     in object [("ok", JBool True), ("items", JArray (fmap item steps))]
+    let (ctx, steps) = runStepsWith withTests mempty (fmap (fmap fromStmt) stmts)
+     in object [("ok", JBool True), ("items", JArray (fmap item steps)), ("system", JString (systemLatexDocument ctx))]
   where
     parseError bundle =
       let err = NE.head (bundleErrors bundle)

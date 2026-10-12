@@ -25,13 +25,17 @@ module Report
     derivationLatex,
     derivationLatexDocument,
 
+    -- * Systems
+    systemLatex,
+    systemLatexDocument,
+
     -- * Locations
     lineColumn,
   )
 where
 
-import Data.Char (isAlphaNum)
-import Data.List (dropWhileEnd, intercalate)
+import Data.Char (isAlpha, isAlphaNum, isDigit)
+import Data.List (dropWhileEnd, intercalate, partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Parser.Types (Located (..), Span (..), spanAt)
@@ -60,12 +64,17 @@ import Program (Outcome (..), PalAction (..), Step (..))
 import Types
   ( Brackets (..),
     Counterexample (..),
+    Ctx (..),
     Derivation (..),
     Diagnostic (..),
     Expectation (..),
+    ExprDecl (..),
     Failure (..),
     Frame (..),
+    Hypothesis (..),
     Justification (..),
+    Mode (..),
+    Premise (..),
     Reduction (..),
     Scheme (..),
     Severity (..),
@@ -75,10 +84,12 @@ import Types
     TestSpec (..),
     TypeDecl (..),
     TypingRule (..),
+    Usage (..),
     isOperator,
     isRelation,
     propertyName,
     relationSubject,
+    pattern ECon,
     pattern EVar,
   )
 
@@ -389,21 +400,86 @@ outline st = go "" ""
 derivationLatex :: Derivation -> String
 derivationLatex d@(Derivation _ _ by _ premises) = case ruleLabel by of
   Nothing -> judgmentLatex d
-  Just label ->
-    "\\inferrule*[right="
-      <> escape label
-      <> "]{"
-      <> intercalate " \\\\ " (fmap derivationLatex premises)
-      <> "}{"
-      <> judgmentLatex d
-      <> "}"
+  Just label -> inferRule label (fmap derivationLatex premises) (judgmentLatex d)
 
 -- | A complete, compilable LaTeX document showing the derivation.
 derivationLatexDocument :: Derivation -> String
-derivationLatexDocument d =
-  unlines
+derivationLatexDocument d = latexDocument ["\\begin{mathpar}", derivationLatex d, "\\end{mathpar}"]
+
+-- | A complete, compilable LaTeX document with the whole system (see
+--   'systemLatex').
+systemLatexDocument :: Ctx -> String
+systemLatexDocument = latexDocument . systemLatex
+
+-- | The whole system as LaTeX lines: the types, the axioms and rules as
+--   inference rules, the relations, the reductions and the values, each in
+--   the order of definition. A section is left out when it is empty.
+--
+--   Typing judgments get an explicit context @\\Gamma@. Relation judgments
+--   do not, because a relation does not see the variables in scope.
+systemLatex :: Ctx -> [String]
+systemLatex Ctx {..} =
+  concat
+    [ section "Types" (not (null types)) [displayMath (intercalate ",\\quad " (fmap typeLatex types))],
+      section "Typing rules" (not (null exprs && null typing)) (mathpar (fmap axiomLatex exprs <> varRule <> fmap ruleLatex typing)),
+      section "Relations" (not (null relations)) (mathpar (fmap ruleLatex relations)),
+      section "Reductions" (not (null reductions)) (mathpar (fmap reductionLatex reductions)),
+      section "Values" (not (null values)) [displayMath ("v \\Coloneqq " <> intercalate " \\mid " (fmap termLatex values))]
+    ]
+  where
+    -- The context keeps the newest definition first.
+    types = reverse ctx'types
+    exprs = reverse ctx'exprs
+    (relations, typing) = partition (isRelation . typingRule'ruleConclusion) (reverse ctx'rules)
+    reductions = reverse ctx'reductions
+    values = reverse ctx'values
+    section title present body = if present then ("\\section*{" <> title <> "}") : body else []
+    mathpar items = ["\\begin{mathpar}"] <> intercalate ["\\and"] (fmap pure items) <> ["\\end{mathpar}"]
+    displayMath m = "\\[ " <> m <> " \\]"
+    typeLatex (TypeDecl n []) = latexName n
+    typeLatex (TypeDecl n args) = latexName n <> "\\langle " <> intercalate ", " (fmap ident args) <> "\\rangle"
+    axiomLatex (ExprDecl n t) = inferRule n [] (typingLatex Plain [] (ECon n [], t))
+    -- PAL looks up variables in the context without a rule. This rule shows
+    -- it. A generalised hypothesis (gen) gets fresh types for its variables.
+    hypotheses = [h | rule <- typing, p <- typingRule'premises rule, h <- premise'hypotheses p]
+    varRule
+      | null hypotheses = []
+      | any hyp'generalize hypotheses =
+          [inferRule "Var" ["x : \\forall \\vec{a}.\\, T \\in \\Gamma"] "\\Gamma \\vdash x : T[\\vec{a} \\coloneqq \\vec{\\tau}]"]
+      | otherwise = [inferRule "Var" ["x : T \\in \\Gamma"] "\\Gamma \\vdash x : T"]
+    ruleLatex (TypingRuleWith name premises conclusion mode) =
+      inferRule name (fmap premiseLatex premises) (judgmentIn mode [] conclusion)
+    premiseLatex (PremiseFull mode hs j share) =
+      (if share then "\\mathsf{share}\\; " else "") <> judgmentIn mode hs j
+    judgmentIn mode hs j
+      | isRelation j = termLatex (snd j)
+      | otherwise = typingLatex mode hs j
+    typingLatex mode hs (e, t) =
+      intercalate ", " ("\\Gamma" : fmap hypothesisLatex hs) <> " \\vdash " <> termLatex e <> " " <> modeLatex mode <> " " <> termLatex t
+    hypothesisLatex (HypothesisWith v t gen usage) =
+      termLatex v <> " : " <> concat [m <> "\\ " | (True, m) <- [(gen, "\\mathsf{gen}"), (usage == Linear, "\\mathsf{lin}"), (usage == Affine, "\\mathsf{aff}")]] <> termLatex t
+    reductionLatex (Reduction n lhs rhs) = "(\\textsc{" <> escape n <> "})\\quad " <> termLatex lhs <> " \\longrightarrow " <> termLatex rhs
+
+-- | A rule as a @mathpartir@ @\\inferrule*@ command. An axiom gets an
+--   empty premise, so that it has a bar too.
+inferRule :: String -> [String] -> String -> String
+inferRule name premises conclusion =
+  "\\inferrule*[right=" <> escape name <> "]{" <> intercalate " \\\\ " (if null premises then ["\\ "] else premises) <> "}{" <> conclusion <> "}"
+
+-- | The symbol of a mode.
+modeLatex :: Mode -> String
+modeLatex = \case
+  Plain -> ":"
+  Synthesis -> "\\Rightarrow"
+  Checking -> "\\Leftarrow"
+
+-- | A complete LaTeX document around the lines of a body.
+latexDocument :: [String] -> String
+latexDocument body =
+  unlines $
     [ "\\documentclass{article}",
       "\\usepackage{mathpartir}",
+      "\\usepackage{mathtools}",
       "% Use the full page width: mathpartir puts premises side by side only",
       "% while they fit, and wraps them onto separate lines otherwise.",
       "\\setlength{\\textwidth}{\\paperwidth}",
@@ -411,12 +487,10 @@ derivationLatexDocument d =
       "\\setlength{\\oddsidemargin}{-1in}",
       "\\addtolength{\\oddsidemargin}{1cm}",
       "\\pagestyle{empty}",
-      "\\begin{document}",
-      "\\begin{mathpar}",
-      derivationLatex d,
-      "\\end{mathpar}",
-      "\\end{document}"
+      "\\begin{document}"
     ]
+      <> body
+      <> ["\\end{document}"]
 
 judgmentLatex :: Derivation -> String
 judgmentLatex (Derivation e t _ assumptions _) =
@@ -438,9 +512,11 @@ termLatex = \case
   Con Angles n ts -> latexName n <> "\\langle " <> intercalate ", " (fmap termLatex ts) <> "\\rangle"
   Subst body x e -> termLatex body <> "[" <> termLatex x <> " \\coloneqq " <> termLatex e <> "]"
 
--- | A variable: single letters stay italic, longer names are upright.
+-- | A variable: a single letter stays as it is, a letter with digits gets
+--   a subscript (@a1@ is @a_{1}@), and a longer name is in text italics.
 ident :: String -> String
 ident [c] = [c]
+ident (c : digits) | isAlpha c, not (null digits), all isDigit digits = c : "_{" <> digits <> "}"
 ident v = "\\mathit{" <> escape v <> "}"
 
 -- | A constructor or rule name, upright.

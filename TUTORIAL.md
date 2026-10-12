@@ -47,7 +47,7 @@ In a rule, `x` and `y` are placeholders that stand for *any* expression. A rule 
   True : Bool
 ```
 
-To typecheck an expression, PAL stacks rules into a **derivation tree**, with the expression at the root and axioms at the leaves. If such a tree exists, the expression is well-typed. If not, PAL reports which premise failed. In the REPL, `:derive e` draws the tree PAL built for `e`. `pal --derivations` and the web UI show them too.
+To typecheck an expression, PAL stacks rules into a **derivation tree**, with the expression at the root and axioms at the leaves. If such a tree exists, the expression is well-typed. If not, PAL reports which premise failed. In the REPL, `:derive e` draws the tree PAL built for `e`. `pal --derivations` and the web UI show them too. `pal --latex FILE.pal` typesets all the rules of a file as inference rules, in LaTeX.
 
 ---
 

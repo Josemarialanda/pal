@@ -6,6 +6,7 @@
 -- > pal FILE...            run .pal files (in order, sharing one context)
 -- > pal -i FILE...         run the files, then start a REPL with their context
 -- > pal --derivations …    draw the derivation tree under each result
+-- > pal --latex FILE...    print the whole system as a LaTeX document
 -- > pal --no-color …       never use colors (also: NO_COLOR=1)
 --
 -- When running files, the exit code is 1 if a file fails to parse, a
@@ -14,15 +15,15 @@
 module Main (main) where
 
 import Control.Exception (IOException, try)
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, unless, when)
 import Data.Maybe (fromMaybe)
 import Pretty (Attr (..), Style, detectStyle, failure, paint, plain, prettyParseError)
 import Program (Outcome (..), Step (..), loadPalFileLocated, runSteps, succeeded)
 import Repl (runRepl)
-import Report (Report (..), Source (..), defaultReport, reportStep)
+import Report (Report (..), Source (..), defaultReport, reportStep, systemLatexDocument)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
-import System.IO (hPutStr, hSetEncoding, stderr, stdin, stdout, utf8)
+import System.IO (hPutStr, hPutStrLn, hSetEncoding, stderr, stdin, stdout, utf8)
 import Text.Read (readMaybe)
 import Types (Ctx)
 
@@ -32,6 +33,8 @@ data Options = Options
     errStyle :: Style,
     -- | Draw derivation trees under successful results.
     derivations :: Bool,
+    -- | Print the system as LaTeX on stdout, and the results on stderr.
+    latex :: Bool,
     -- | Terminal width, for derivation trees.
     width :: Int
   }
@@ -44,15 +47,16 @@ main = do
   let noColor = "--no-color" `elem` args
       style h = if noColor then pure plain else detectStyle h
   columns <- (>>= readMaybe) <$> lookupEnv "COLUMNS"
-  opts <- Options <$> style stdout <*> style stderr <*> pure ("--derivations" `elem` args) <*> pure (fromMaybe 100 columns)
-  case filter (`notElem` ["--no-color", "--derivations"]) args of
+  opts <- Options <$> style stdout <*> style stderr <*> pure ("--derivations" `elem` args) <*> pure ("--latex" `elem` args) <*> pure (fromMaybe 100 columns)
+  case filter (`notElem` ["--no-color", "--derivations", "--latex"]) args of
     [] -> runRepl (outStyle opts) mempty
     [flag] | flag `elem` ["-h", "--help"] -> putStr usage
     (flag : files) | flag `elem` ["-i", "--interactive"] -> do
       (ctx, _) <- runFiles opts files
       runRepl (outStyle opts) ctx
     files@(f : _) | take 1 f /= "-" -> do
-      (_, ok) <- runFiles opts files
+      (ctx, ok) <- runFiles opts files
+      when (latex opts) (putStr (systemLatexDocument ctx))
       unless ok exitFailure
     _ -> hPutStr stderr usage >> exitFailure
 
@@ -65,7 +69,7 @@ runFiles opts files = do
   (ctx, steps) <- foldM step (mempty, []) files
   let expectations = [succeeded outcome | Step _ outcome <- steps, isCheck outcome]
       unmet = length (filter not expectations)
-  unless (null expectations) . putStrLn $
+  unless (null expectations) . results $
     if unmet == 0
       then paint (outStyle opts) [Bold, Green] (count (length expectations) "check" <> " passed")
       else paint (outStyle opts) [Bold, Red] (show unmet <> " of " <> count (length expectations) "check" <> " failed")
@@ -88,9 +92,10 @@ runFiles opts files = do
                     report'derivations = derivations opts,
                     report'width = width opts
                   }
-          mapM_ (mapM_ putStrLn . reportStep report) steps
+          mapM_ (mapM_ results . reportStep report) steps
           pure (ctx', done <> steps)
     die msg = hPutStr stderr msg >> exitFailure
+    results = if latex opts then hPutStrLn stderr else putStrLn
     count n word = show n <> " " <> word <> (if n == 1 then "" else "s")
 
 usage :: String
@@ -103,6 +108,8 @@ usage =
       "",
       "Options:",
       "  --derivations       draw the derivation tree under each successful result",
+      "  --latex             print the whole system (all rules) as a LaTeX document;",
+      "                      the results go to stderr",
       "  --no-color          plain output (colors are also off when NO_COLOR is set",
       "                      or output is not a terminal)",
       "",
