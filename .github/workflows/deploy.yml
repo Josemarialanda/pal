@@ -1,7 +1,4 @@
-# Deploy the web UI to Vercel on every push to main or testing.
-#
-#   main    -> https://pal-ui.vercel.app          (Vercel project pal-ui)
-#   testing -> https://pal-ui-testing.vercel.app  (Vercel project pal-ui-testing)
+# Deploy the web UI to Vercel on every push to main.
 #
 # pal-ui is built here with Nix and uploaded prebuilt (see deploy/vercel/),
 # so Vercel never compiles Haskell. Needs a VERCEL_TOKEN repository secret.
@@ -9,7 +6,7 @@ name: Deploy to Vercel
 
 on:
   push:
-    branches: [main, testing]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERCEL_ORG_ID: team_2fsKeBCRXBM676e49qYjAb4T
-      VERCEL_PROJECT_ID: ${{ github.ref_name == 'main' && 'prj_iw8kISSbUZy4A8i3Z1fB1ao4KHaf' || 'prj_yAxdp7GtErJr1er9SQ2uv3TKWYLj' }}
+      VERCEL_PROJECT_ID: prj_EKztEDLBWUi1Jg28WgbyTlnqYn0e
     steps:
       - uses: actions/checkout@v4
 
