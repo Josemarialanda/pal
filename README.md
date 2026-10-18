@@ -307,7 +307,7 @@ pal❯ Not(True)
 
 The page and the colour schemes are compiled into the binary, so `pal-ui` is a single self-contained executable. It only listens on `127.0.0.1` and rejects requests for any other host name, so other machines and other websites can't reach it.
 
-A public copy runs at <https://pal-ui.vercel.app> (from `main`). Each push to `main` redeploys it: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds `pal-ui` with Nix and uploads it to Vercel, where a small function ([`deploy/vercel/`](deploy/vercel/)) runs it behind `/api/run`.
+A public copy runs at <https://www.pal.codes> (from `main`). Each push to `main` redeploys it: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds `pal-ui` with Nix and uploads it to Vercel, where a small function ([`deploy/vercel/`](deploy/vercel/)) runs it behind `/api/run`.
 
 ## Examples
 
